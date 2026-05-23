@@ -74,8 +74,8 @@ Terminal output uses the same palette via the four status prefixes:
 
 ```
 EXO-NET/
-├── network_scanner.py      # thin CLI shim
-├── safescan/
+├── exonet.py               # thin CLI shim
+├── exonet/
 │   ├── cli.py              # argparse + orchestration
 │   ├── discovery.py        # ARP / ICMP / TCP-ping + reverse DNS
 │   ├── portscan.py         # TCP connect, TCP SYN, UDP (with evasion hooks)
@@ -118,44 +118,44 @@ and skips the ARP sweep.
 
 ```bash
 # Single host, common ports, banners, table output:
-python network_scanner.py --target 192.168.1.1
+python exonet.py --target 192.168.1.1
 
 # Discover live hosts on a /24 (no port scan):
-python network_scanner.py --target 192.168.1.0/24 --discover
+python exonet.py --target 192.168.1.0/24 --discover
 
 # Discover then port-scan every live host:
-python network_scanner.py --target 192.168.1.0/24 --discover --scan
+python exonet.py --target 192.168.1.0/24 --discover --scan
 ```
 
 ### Reports & saving
 
 ```bash
-# Save a timestamped session under ./safescan_results/ with HTML + JSON:
-python network_scanner.py --target 192.168.1.0/24 --discover --scan --save
+# Save a timestamped session under ./exonet_results/ with HTML + JSON:
+python exonet.py --target 192.168.1.0/24 --discover --scan --save
 
 # Pick formats and a custom base directory:
-python network_scanner.py --target 192.168.1.0/24 --discover --scan \
+python exonet.py --target 192.168.1.0/24 --discover --scan \
     --save /tmp/recon --report html,csv,json
 
 # JSON to stdout for piping:
-python network_scanner.py --target 192.168.1.1 --output json > scan.json
+python exonet.py --target 192.168.1.1 --output json > scan.json
 ```
 
 ### Screenshots
 
 ```bash
 # Save HTML body + response headers from every open HTTP/HTTPS port:
-python network_scanner.py --target 192.168.1.0/24 --discover --scan \
+python exonet.py --target 192.168.1.0/24 --discover --scan \
     --screenshots --save
 
 # Same, plus PNG screenshots (needs playwright):
-python network_scanner.py --target 192.168.1.0/24 --discover --scan \
+python exonet.py --target 192.168.1.0/24 --discover --scan \
     --screenshots --screenshots-png --save
 ```
 
 Output layout:
 ```
-safescan_results/20260523_044021_192.168.1.0_24/
+exonet_results/20260523_044021_192.168.1.0_24/
 ├── report.html
 ├── report.json
 ├── report.csv
@@ -170,14 +170,14 @@ safescan_results/20260523_044021_192.168.1.0_24/
 
 ```bash
 # Aggressive preset: T4 + UDP + banners + OS detect + reports:
-python network_scanner.py --target 192.168.1.0/24 --aggressive \
+python exonet.py --target 192.168.1.0/24 --aggressive \
     --report html,csv --save
 
 # Stealth preset on a privileged shell (T1 + SYN, no banners):
-sudo python network_scanner.py --target 192.168.1.0/24 --stealth
+sudo python exonet.py --target 192.168.1.0/24 --stealth
 
 # Add evasion (random jitter + random source ports) to any scan:
-python network_scanner.py --target 192.168.1.1 --ports 1-1024 --evasion
+python exonet.py --target 192.168.1.1 --ports 1-1024 --evasion
 ```
 
 ### MAC vendor lookup with an external OUI file
@@ -185,7 +185,7 @@ python network_scanner.py --target 192.168.1.1 --ports 1-1024 --evasion
 ```bash
 # Wireshark 'manuf' format (or IEEE oui.txt) - dramatically expands the
 # bundled hand-curated list:
-python network_scanner.py --target 192.168.1.0/24 --discover \
+python exonet.py --target 192.168.1.0/24 --discover \
     --oui-file /usr/share/wireshark/manuf
 ```
 
@@ -194,7 +194,7 @@ python network_scanner.py --target 192.168.1.0/24 --discover \
 ```bash
 # Reminder list for any services we identified - DISPLAY ONLY.
 # The scanner never attempts to authenticate.
-python network_scanner.py --target 192.168.1.10 --show-default-creds
+python exonet.py --target 192.168.1.10 --show-default-creds
 ```
 
 Sample output:
@@ -216,14 +216,14 @@ The scanner does NOT attempt these credentials. This is a memory-aid only.
 
 ```bash
 # Force TCP connect (Windows-friendly, no Npcap needed):
-python network_scanner.py --target 192.168.1.10 --scan-type connect
+python exonet.py --target 192.168.1.10 --scan-type connect
 
 # UDP-only on common services:
-python network_scanner.py --target 192.168.1.10 --udp \
+python exonet.py --target 192.168.1.10 --udp \
     --udp-ports 53,123,161,137,1900
 
 # Big port range with faster timing:
-python network_scanner.py --target 192.168.1.1 --ports 1-1024 --timing 4
+python exonet.py --target 192.168.1.1 --ports 1-1024 --timing 4
 ```
 
 ## CLI reference
@@ -243,7 +243,7 @@ python network_scanner.py --target 192.168.1.1 --ports 1-1024 --timing 4
 --evasion          Random jitter + random source ports
 --output           table | json   (stdout)
 --report html,csv,json   File reports written under --save
---save [DIR]       Timestamped session dir (default base ./safescan_results)
+--save [DIR]       Timestamped session dir (default base ./exonet_results)
 --screenshots / --screenshots-png    HTTP HTML + headers (+ optional PNG)
 --show-default-creds      Display-only credential awareness
 --no-banner / --no-progress
