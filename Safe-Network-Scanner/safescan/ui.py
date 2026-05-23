@@ -1,4 +1,4 @@
-"""Colored output, banner, and a tiny thread-safe progress bar."""
+"""EXO NET — colored output, banner, and a tiny thread-safe progress bar."""
 
 from __future__ import annotations
 
@@ -33,6 +33,12 @@ def c(text: str, color: str) -> str:
 # ---- log helpers ------------------------------------------------------------
 # Logs go to stderr so they don't pollute machine-readable output (e.g. JSON)
 # piped from stdout.
+#
+# EXO NET status-prefix palette:
+#   [*] cyan    informational
+#   [+] green   success / discovery
+#   [!] red     alert / warning
+#   [-] yellow  failure / negative result
 
 def info(msg: str) -> None:
     print(c("[*] ", Fore.CYAN) + msg, file=sys.stderr)
@@ -43,11 +49,11 @@ def good(msg: str) -> None:
 
 
 def warn(msg: str) -> None:
-    print(c("[!] ", Fore.YELLOW) + msg, file=sys.stderr)
+    print(c("[!] ", Fore.RED) + msg, file=sys.stderr)
 
 
 def bad(msg: str) -> None:
-    print(c("[-] ", Fore.RED) + msg, file=sys.stderr)
+    print(c("[-] ", Fore.YELLOW) + msg, file=sys.stderr)
 
 
 def dim(msg: str) -> str:
@@ -56,21 +62,46 @@ def dim(msg: str) -> str:
 
 # ---- banner -----------------------------------------------------------------
 BANNER = r"""
-   _____        __         _   _      _      _____
-  / ____|      / _|       | \ | |    | |    / ____|
- | (___   __ _| |_ ___    |  \| | ___| |_  | (___   ___ __ _ _ __
-  \___ \ / _` |  _/ _ \   | . ` |/ _ \ __|  \___ \ / __/ _` | '_ \
-  ____) | (_| | ||  __/   | |\  |  __/ |_   ____) | (_| (_| | | | |
- |_____/ \__,_|_| \___|   |_| \_|\___|\__| |_____/ \___\__,_|_| |_|
-
-           Safe-Network-Scanner v{ver} - Educational Use Only
+███████╗██╗  ██╗ ██████╗     ███╗   ██╗███████╗████████╗
+██╔════╝╚██╗██╔╝██╔═══██╗    ████╗  ██║██╔════╝╚══██╔══╝
+█████╗   ╚███╔╝ ██║   ██║    ██╔██╗ ██║█████╗     ██║   
+██╔══╝   ██╔██╗ ██║   ██║    ██║╚██╗██║██╔══╝     ██║   
+███████╗██╔╝ ██╗╚██████╔╝    ██║ ╚████║███████╗   ██║   
+╚══════╝╚═╝  ╚═╝ ╚═════╝     ╚═╝  ╚═══╝╚══════╝   ╚═╝   
 """
+
+TAGLINE = "[ Advanced Network Reconnaissance ]"
+SUB_TAGLINE = "// Only scan networks you own or have explicit permission to scan"
 
 
 def show_banner(version: str) -> None:
-    print(c(BANNER.format(ver=version), Fore.MAGENTA), file=sys.stderr)
-    warn("Only scan networks you OWN or have explicit WRITTEN permission to scan.")
-    warn("Unauthorized scanning may violate computer-misuse laws in your jurisdiction.\n")
+    """Render the EXO NET banner to stderr.
+
+    The block art is split across two terminal colors so the rebrand reads
+    as the intended cyberpunk magenta/green pairing on a black terminal:
+    the "EXO" half lights in magenta, the "NET" half in neon green.
+    """
+    lines = BANNER.strip("\n").splitlines()
+    # Each glyph above is 8 columns wide. "EXO" spans the first 3 glyphs
+    # plus a 4-column separator gap before "NET" begins. Splitting at
+    # column 28 keeps the gap between them clean.
+    split_col = 28
+
+    if _enabled():
+        for line in lines:
+            left = line[:split_col]
+            right = line[split_col:]
+            sys.stderr.write(
+                f"{Fore.MAGENTA}{left}{Style.RESET_ALL}"
+                f"{Fore.GREEN}{right}{Style.RESET_ALL}\n"
+            )
+    else:
+        for line in lines:
+            sys.stderr.write(line + "\n")
+
+    print(c(f"        {TAGLINE}  v{version}", Fore.GREEN), file=sys.stderr)
+    print(c(f"        {SUB_TAGLINE}", Fore.CYAN), file=sys.stderr)
+    print(file=sys.stderr)
 
 
 # ---- progress bar -----------------------------------------------------------

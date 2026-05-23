@@ -1,8 +1,22 @@
-# Safe-Network-Scanner
+```
+███████╗██╗  ██╗ ██████╗     ███╗   ██╗███████╗████████╗
+██╔════╝╚██╗██╔╝██╔═══██╗    ████╗  ██║██╔════╝╚══██╔══╝
+█████╗   ╚███╔╝ ██║   ██║    ██╔██╗ ██║█████╗     ██║   
+██╔══╝   ██╔██╗ ██║   ██║    ██║╚██╗██║██╔══╝     ██║   
+███████╗██╔╝ ██╗╚██████╔╝    ██║ ╚████║███████╗   ██║   
+╚══════╝╚═╝  ╚═╝ ╚═════╝     ╚═╝  ╚═══╝╚══════╝   ╚═╝   
+```
 
-An educational, nmap-lite Python network scanner. Discovers live hosts,
-fingerprints services, captures HTTP page snapshots, and emits results
-as a colored table, JSON, CSV, or a self-contained HTML report.
+# EXO NET
+
+**`[ Advanced Network Reconnaissance ]`**
+
+> Educational use only. Only scan networks you own or have explicit written permission to scan.
+
+EXO NET is an advanced, nmap-lite Python network reconnaissance toolkit.
+It discovers live hosts, fingerprints services, captures HTTP page
+snapshots, and emits results as a colored terminal table, JSON, CSV, or
+a self-contained themed HTML report.
 
 > **Use only on networks you own or have explicit written permission to scan.**
 > Unauthorized scanning may be illegal in your jurisdiction.
@@ -29,7 +43,9 @@ as a colored table, JSON, CSV, or a self-contained HTML report.
 - **Evasion** - `--evasion` adds <=0.5s random per-probe jitter and
   randomizes source ports (TCP connect bind() + Scapy `sport=`).
 - **Reports** - colored ASCII table on stdout (default), or write any of
-  HTML / CSV / JSON files to disk via `--report` + `--save`.
+  HTML / CSV / JSON files to disk via `--report` + `--save`. The HTML
+  report ships a black / neon-green cyberpunk theme using `Share Tech
+  Mono` for that authentic CRT feel.
 - **Screenshots** - `--screenshots` saves HTML body + response headers for
   every open HTTP/HTTPS port. Add `playwright` (optional) for PNG.
 - **Default-credentials awareness** - `--show-default-creds` prints
@@ -41,10 +57,23 @@ as a colored table, JSON, CSV, or a self-contained HTML report.
 - **Public-IP guard** - refuses to scan non-RFC1918 ranges without
   `--allow-public`.
 
+## Visual theme
+
+| Token              | Color      |
+|--------------------|------------|
+| Background         | `#000000`  |
+| Primary (neon)     | `#00ff41`  |
+| Accent (red)       | `#ff003c`  |
+| Info (cyan)        | `#00cfff`  |
+| Warning (yellow)   | `#ffe600`  |
+
+Terminal output uses the same palette via the four status prefixes:
+`[*]` cyan info, `[+]` green hit, `[!]` red alert, `[-]` yellow miss.
+
 ## Layout
 
 ```
-Safe-Network-Scanner/
+EXO-NET/
 ├── network_scanner.py      # thin CLI shim
 ├── safescan/
 │   ├── cli.py              # argparse + orchestration
@@ -54,7 +83,7 @@ Safe-Network-Scanner/
 │   ├── osfp.py             # TTL-based OS guess
 │   ├── oui.py              # MAC vendor lookup (+ load_from_file)
 │   ├── output.py           # stdout: colored table / JSON
-│   ├── report.py           # files: HTML / CSV / JSON
+│   ├── report.py           # files: HTML / CSV / JSON (themed)
 │   ├── screenshots.py      # HTTP/HTTPS HTML + headers + optional PNG
 │   ├── credentials.py      # default-creds reference table (display-only)
 │   ├── evasion.py          # jitter + random source port policy
@@ -231,7 +260,7 @@ python network_scanner.py --target 192.168.1.1 --ports 1-1024 --timing 4
 | MAC lookup      | OS arp cache              | live ARP                     |
 
 On Windows without Npcap, Scapy is *imported* but raw sockets aren't
-usable; the scanner detects this and silently falls back to the stdlib
+usable; EXO NET detects this and silently falls back to the stdlib
 backend instead of crashing mid-scan.
 
 ## Notes & limits
@@ -246,7 +275,7 @@ backend instead of crashing mid-scan.
   access; treat `open|filtered` as "no response, could be either".
 - Screenshot fetching uses stdlib `urllib` and disables TLS verification
   because lab gear typically uses self-signed certs.
-- The default-credentials reference is **display-only**; the scanner
-  never attempts authentication. Information sourced from public vendor
+- The default-credentials reference is **display-only**; EXO NET never
+  attempts authentication. Information sourced from public vendor
   documentation, distro install guides, and public-domain default
   password lists.

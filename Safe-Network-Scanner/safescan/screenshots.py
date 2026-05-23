@@ -40,7 +40,7 @@ def _fetch(url: str, timeout: float) -> Optional[Tuple[int, Dict[str, str], byte
     ctx.verify_mode = ssl.CERT_NONE
     req = urllib.request.Request(
         url,
-        headers={"User-Agent": "Safe-Network-Scanner/0.3 (educational)"},
+        headers={"User-Agent": "EXO-NET/1.0 (educational)"},
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:

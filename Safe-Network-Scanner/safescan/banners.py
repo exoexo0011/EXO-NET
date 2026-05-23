@@ -88,7 +88,7 @@ def _http_request(sock: socket.socket, host: str, method: str, timeout: float) -
     req = (
         f"{method} / HTTP/1.0\r\n"
         f"Host: {host}\r\n"
-        f"User-Agent: Safe-Network-Scanner\r\n"
+        f"User-Agent: EXO-NET\r\n"
         f"Accept: */*\r\n"
         f"Connection: close\r\n\r\n"
     )
