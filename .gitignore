@@ -5,4 +5,4 @@ __pycache__/
 venv/
 .env
 .DS_Store
-exonet_results/
+safescan_results/
