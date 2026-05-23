@@ -1,6 +1,6 @@
 """HTML and CSV report writers (EXO NET themed).
 
-JSON exports go through :func:`safescan.output.render_json`. This module
+JSON exports go through :func:`exonet.output.render_json`. This module
 focuses on file-based, human-friendly tabular formats.
 """
 

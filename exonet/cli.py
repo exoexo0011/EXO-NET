@@ -2,7 +2,7 @@
 
 Run via the top-level shim::
 
-    python network_scanner.py --target 192.168.1.0/24 --discover --scan
+    python exonet.py --target 192.168.1.0/24 --discover --scan
 """
 
 from __future__ import annotations
@@ -88,7 +88,7 @@ def _parse_report(spec: str) -> List[str]:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="network_scanner.py",
+        prog="exonet.py",
         description=(
             "EXO NET [ Advanced Network Reconnaissance ] - an educational "
             "nmap-lite scanner. Use only on networks you own or have "
@@ -97,15 +97,15 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  python network_scanner.py --target 192.168.1.1\n"
-            "  python network_scanner.py --target 192.168.1.0/24 --discover\n"
-            "  python network_scanner.py --target 192.168.1.0/24 --discover --scan\n"
-            "  python network_scanner.py --target 192.168.1.1 --ports 1-1024 --timing 4\n"
-            "  python network_scanner.py --target 192.168.1.1 --scan-type syn --os-detect\n"
-            "  python network_scanner.py --target 192.168.1.0/24 --aggressive --report html,csv\n"
-            "  python network_scanner.py --target 192.168.1.0/24 --stealth --evasion\n"
-            "  python network_scanner.py --target 192.168.1.10 --udp --udp-ports 53,123,161\n"
-            "  python network_scanner.py --target 192.168.1.0/24 --aggressive --screenshots --save\n"
+            "  python exonet.py --target 192.168.1.1\n"
+            "  python exonet.py --target 192.168.1.0/24 --discover\n"
+            "  python exonet.py --target 192.168.1.0/24 --discover --scan\n"
+            "  python exonet.py --target 192.168.1.1 --ports 1-1024 --timing 4\n"
+            "  python exonet.py --target 192.168.1.1 --scan-type syn --os-detect\n"
+            "  python exonet.py --target 192.168.1.0/24 --aggressive --report html,csv\n"
+            "  python exonet.py --target 192.168.1.0/24 --stealth --evasion\n"
+            "  python exonet.py --target 192.168.1.10 --udp --udp-ports 53,123,161\n"
+            "  python exonet.py --target 192.168.1.0/24 --aggressive --screenshots --save\n"
         ),
     )
 
@@ -171,10 +171,10 @@ def _build_parser() -> argparse.ArgumentParser:
                         metavar="FORMATS",
                         help="Comma-separated report files to write (under --save). "
                              "Choices: html, csv, json. Example: --report html,csv")
-    parser.add_argument("--save", nargs="?", const="./safescan_results", default=None,
+    parser.add_argument("--save", nargs="?", const="./exonet_results", default=None,
                         metavar="DIR",
                         help="Save results to a timestamped subdirectory. Optional "
-                             "DIR is the base path (default ./safescan_results).")
+                             "DIR is the base path (default ./exonet_results).")
     parser.add_argument("--screenshots", action="store_true",
                         help="Capture HTML + headers from open HTTP/HTTPS ports. "
                              "Implies --save. Add 'playwright' for PNG screenshots.")
@@ -361,7 +361,7 @@ def run(args: argparse.Namespace) -> int:
     save_dir: Optional[Path] = None
     needs_save = bool(args.save) or bool(args.report) or args.screenshots
     if needs_save:
-        base = args.save or "./safescan_results"
+        base = args.save or "./exonet_results"
         save_dir = storage.make_session_dir(base, str(args.target))
         ui.info(f"Saving outputs to {save_dir}")
 
