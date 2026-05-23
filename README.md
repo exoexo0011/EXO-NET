@@ -5,57 +5,50 @@
 ██╔══╝   ██╔██╗ ██║   ██║    ██║╚██╗██║██╔══╝     ██║   
 ███████╗██╔╝ ██╗╚██████╔╝    ██║ ╚████║███████╗   ██║   
 ╚══════╝╚═╝  ╚═╝ ╚═════╝     ╚═╝  ╚═══╝╚══════╝   ╚═╝   
+
+                                                  PRO
 ```
 
-# EXO NET
+# EXO NET Pro
 
-**`[ Advanced Network Reconnaissance ]`**
+**`[ Professional Ethical Hacking Toolkit ]`**
 
-> Educational use only. Only scan networks you own or have explicit written permission to scan.
+> **AUTHORIZATION REQUIRED.** EXO NET Pro is an offensive security tool.
+> Use it only on networks, hosts and applications you own or for which
+> you hold explicit, **written** authorization to test. Unauthorized
+> scanning may violate computer-misuse laws in your jurisdiction and is
+> not covered by this project. The maintainers accept no liability for
+> misuse.
 
-EXO NET is an advanced, nmap-lite Python network reconnaissance toolkit.
-It discovers live hosts, fingerprints services, captures HTTP page
-snapshots, and emits results as a colored terminal table, JSON, CSV, or
-a self-contained themed HTML report.
+EXO NET Pro is the v2.x evolution of EXO NET — a Python reconnaissance
+and assessment toolkit. It does layered host discovery, multi-strategy
+port scanning, service and version detection, WHOIS / DNS recon,
+CVE lookup, SSL/TLS health checks, firewall fingerprinting, and a 0-100
+risk score per host. Output ranges from a colored terminal table to a
+self-contained themed HTML / PDF pentest report.
 
-> **Use only on networks you own or have explicit written permission to scan.**
-> Unauthorized scanning may be illegal in your jurisdiction.
+## What's new in 2.0 (Pro)
 
-## Features
+- **WHOIS + DNS recon** — registrar / org / country, A / MX / TXT / NS /
+  CNAME / SOA records, optional subdomain brute-force.
+- **CVE lookup** against the public [cve.circl.lu] API for every
+  detected service banner, with CVSS-aware scoring.
+- **SSL / TLS checker** — flags expired and self-signed certs, weak
+  protocols (TLS 1.0/1.1, SSLv2/3) and weak ciphers (RC4, 3DES, NULL,
+  EXPORT, ANON).
+- **Firewall detection** by analyzing filtered/closed/open patterns and
+  TTL anomalies on alive hosts.
+- **Risk scoring engine** that combines open-port volume, sensitive
+  services, default-credential exposure, CVE findings, outdated
+  software, SSL findings and absence of a firewall into one 0..100
+  score with `CRITICAL / HIGH / MEDIUM / LOW / INFO` levels and per-host
+  remediation guidance.
+- **Professional pentest report** — executive summary, glow-coded risk
+  badges, per-host CVE tables, SSL findings, recon dump, firewall
+  analysis, prioritized recommendations, footer with disclaimer and
+  timestamp. Exports to PDF via WeasyPrint.
 
-- **Layered host discovery** - ARP sweep (when privileged + Scapy L2) +
-  ICMP echo + TCP-ping fallback for ICMP-blocked hosts. Reverse DNS on
-  alive hosts.
-- **Multiple scan types** - TCP `connect` (always works), TCP `SYN` (raw,
-  fast, needs root + libpcap/Npcap), UDP best-effort with protocol-aware
-  probes for DNS / NTP / SNMP / NetBIOS / SSDP.
-- **Service & version detection** - structured fingerprinters for SSH
-  (protocol + software + comments), HTTP/HTTPS (`Server:` header + page
-  `<title>`), SMB2 (NEGOTIATE with dialect parsing), RDP (X.224 + nego
-  protocols), plus passive grabbers for FTP / SMTP / POP3 / IMAP / VNC
-  and a generic fallback.
-- **Basic OS fingerprinting** - TTL bucketing (64 / 128 / 255).
-- **MAC + vendor lookup** - Scapy ARP when privileged, system `arp` cache
-  otherwise. Vendor names from a small embedded OUI table; load a full
-  IEEE / Wireshark `manuf` file with `--oui-file PATH` to widen coverage.
-- **nmap-style timing** - `--timing 0..5` mirroring T0-T5.
-- **Stealth / Aggressive presets** - one-flag scan profiles.
-- **Evasion** - `--evasion` adds <=0.5s random per-probe jitter and
-  randomizes source ports (TCP connect bind() + Scapy `sport=`).
-- **Reports** - colored ASCII table on stdout (default), or write any of
-  HTML / CSV / JSON files to disk via `--report` + `--save`. The HTML
-  report ships a black / neon-green cyberpunk theme using `Share Tech
-  Mono` for that authentic CRT feel.
-- **Screenshots** - `--screenshots` saves HTML body + response headers for
-  every open HTTP/HTTPS port. Add `playwright` (optional) for PNG.
-- **Default-credentials awareness** - `--show-default-creds` prints
-  historical default usernames/passwords for the services it found, as a
-  reminder to rotate them. *The scanner never attempts logins.*
-- **Windows-safe** - probes Scapy L3/L2 capability up front; transparently
-  falls back to TCP connect + subprocess ping when raw sockets aren't
-  available (e.g. no Npcap on Windows).
-- **Public-IP guard** - refuses to scan non-RFC1918 ranges without
-  `--allow-public`.
+[cve.circl.lu]: https://cve.circl.lu/
 
 ## Visual theme
 
@@ -66,9 +59,12 @@ a self-contained themed HTML report.
 | Accent (red)       | `#ff003c`  |
 | Info (cyan)        | `#00cfff`  |
 | Warning (yellow)   | `#ffe600`  |
+| HIGH (orange)      | `#ff7700`  |
 
-Terminal output uses the same palette via the four status prefixes:
-`[*]` cyan info, `[+]` green hit, `[!]` red alert, `[-]` yellow miss.
+Risk badges glow with their color: red CRITICAL, orange HIGH, yellow
+MEDIUM, neon-green LOW, cyan INFO. Terminal output keeps the four
+status prefixes — `[*]` cyan info, `[+]` green hit, `[!]` red alert,
+`[-]` yellow miss.
 
 ## Layout
 
@@ -76,6 +72,7 @@ Terminal output uses the same palette via the four status prefixes:
 EXO-NET/
 ├── exonet.py               # thin CLI shim
 ├── exonet/
+│   ├── __init__.py
 │   ├── cli.py              # argparse + orchestration
 │   ├── discovery.py        # ARP / ICMP / TCP-ping + reverse DNS
 │   ├── portscan.py         # TCP connect, TCP SYN, UDP (with evasion hooks)
@@ -84,6 +81,7 @@ EXO-NET/
 │   ├── oui.py              # MAC vendor lookup (+ load_from_file)
 │   ├── output.py           # stdout: colored table / JSON
 │   ├── report.py           # files: HTML / CSV / JSON (themed)
+│   ├── report_pro.py       # Pro pentest HTML/PDF report             [Pro]
 │   ├── screenshots.py      # HTTP/HTTPS HTML + headers + optional PNG
 │   ├── credentials.py      # default-creds reference table (display-only)
 │   ├── evasion.py          # jitter + random source port policy
@@ -92,8 +90,14 @@ EXO-NET/
 │   ├── safety.py           # public-IP guard
 │   ├── timing.py           # T0..T5 profiles
 │   ├── ui.py               # colors, banner, progress bar (stderr)
-│   └── types.py            # HostResult / PortResult dataclasses
-└── requirements.txt
+│   ├── types.py            # HostResult / PortResult dataclasses
+│   ├── whois.py            # WHOIS / DNS / subdomain scanner         [Pro]
+│   ├── vuln.py             # CVE lookup + SSL/TLS health             [Pro]
+│   ├── firewall.py         # Firewall detection                      [Pro]
+│   └── risk.py             # 0-100 risk scoring engine               [Pro]
+├── README.md
+├── requirements.txt
+└── .gitignore
 ```
 
 ## Install
@@ -102,15 +106,22 @@ EXO-NET/
 python -m venv .venv
 source .venv/bin/activate           # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-
-# Optional - enable PNG screenshots:
-pip install playwright
-playwright install chromium
 ```
 
-`scapy` is optional. Without it (or without Npcap on Windows / root on
-Unix) the scanner falls back to `socket.connect` + `subprocess.ping`
-and skips the ARP sweep.
+All dependencies are **optional and lazy-loaded**. EXO NET Pro never
+crashes when an external library or system command is missing — the
+relevant feature is simply skipped with a warning. The minimal core
+runs with only the standard library.
+
+| Optional dep      | Enables                                                |
+|-------------------|--------------------------------------------------------|
+| `scapy`           | ARP sweep, SYN scan, raw ICMP                          |
+| `python-whois`    | WHOIS lookup (else falls back to system `whois`)       |
+| `dnspython`       | DNS A/AAAA/MX/TXT/NS/CNAME/SOA enumeration             |
+| `requests`        | CVE lookup against cve.circl.lu                        |
+| `cryptography`    | Detailed SSL certificate parsing                       |
+| `weasyprint`      | PDF export of the pro report                           |
+| `playwright`      | PNG screenshots (`--screenshots-png`)                  |
 
 ## Run
 
@@ -127,6 +138,21 @@ python exonet.py --target 192.168.1.0/24 --discover
 python exonet.py --target 192.168.1.0/24 --discover --scan
 ```
 
+### Pro: full assessment
+
+```bash
+# Everything: discovery + scan + WHOIS/DNS + CVE/SSL + firewall + risk
+# + professional HTML pentest report. Saved to ./exonet_results/.
+python exonet.py --target 192.168.1.0/24 --pro --report html --save
+
+# A focused single-host audit with explicit feature flags:
+python exonet.py --target 192.168.1.1 --whois --vuln --risk \
+    --report html --save
+
+# Same, plus a PDF export of the pro report (needs weasyprint):
+python exonet.py --target 192.168.1.1 --pro --output-pdf --save
+```
+
 ### Reports & saving
 
 ```bash
@@ -141,28 +167,20 @@ python exonet.py --target 192.168.1.0/24 --discover --scan \
 python exonet.py --target 192.168.1.1 --output json > scan.json
 ```
 
-### Screenshots
+### Pro reports
 
-```bash
-# Save HTML body + response headers from every open HTTP/HTTPS port:
-python exonet.py --target 192.168.1.0/24 --discover --scan \
-    --screenshots --save
+The pro HTML report is written to `report_pro.html` (instead of the
+plain `report.html`) when `--pro` is on. PDF export goes to
+`report_pro.pdf`. Sample session layout:
 
-# Same, plus PNG screenshots (needs playwright):
-python exonet.py --target 192.168.1.0/24 --discover --scan \
-    --screenshots --screenshots-png --save
-```
-
-Output layout:
 ```
 exonet_results/20260523_044021_192.168.1.0_24/
-├── report.html
+├── report_pro.html
+├── report_pro.pdf            (with --output-pdf)
 ├── report.json
-├── report.csv
-└── screenshots/
+└── screenshots/              (with --screenshots)
     ├── 192_168_1_10_80.html
     ├── 192_168_1_10_80.headers.txt
-    ├── 192_168_1_10_80.png            (if playwright installed)
     └── ...
 ```
 
@@ -180,11 +198,21 @@ sudo python exonet.py --target 192.168.1.0/24 --stealth
 python exonet.py --target 192.168.1.1 --ports 1-1024 --evasion
 ```
 
+### Screenshots
+
+```bash
+# Save HTML body + response headers from every open HTTP/HTTPS port:
+python exonet.py --target 192.168.1.0/24 --discover --scan \
+    --screenshots --save
+
+# Same, plus PNG screenshots (needs playwright):
+python exonet.py --target 192.168.1.0/24 --discover --scan \
+    --screenshots --screenshots-png --save
+```
+
 ### MAC vendor lookup with an external OUI file
 
 ```bash
-# Wireshark 'manuf' format (or IEEE oui.txt) - dramatically expands the
-# bundled hand-curated list:
 python exonet.py --target 192.168.1.0/24 --discover \
     --oui-file /usr/share/wireshark/manuf
 ```
@@ -195,21 +223,6 @@ python exonet.py --target 192.168.1.0/24 --discover \
 # Reminder list for any services we identified - DISPLAY ONLY.
 # The scanner never attempts to authenticate.
 python exonet.py --target 192.168.1.10 --show-default-creds
-```
-
-Sample output:
-```
-=== Default credentials reference (informational) ===
-Sources: vendor manuals + public-domain default-password lists.
-If any of your gear still uses these, ROTATE THEM NOW.
-The scanner does NOT attempt these credentials. This is a memory-aid only.
-
-  SSH - found on: 192.168.1.10:22 (myhost.lan)
-              'root' : 'root'
-              'root' : 'toor'
-             'admin' : 'admin'
-                'pi' : 'raspberry'
-              'ubnt' : 'ubnt'
 ```
 
 ### Specific scan-type / UDP / port range
@@ -248,7 +261,44 @@ python exonet.py --target 192.168.1.1 --ports 1-1024 --timing 4
 --show-default-creds      Display-only credential awareness
 --no-banner / --no-progress
 --allow-public     Required to scan non-RFC1918 ranges
+
+EXO NET Pro:
+--pro              Enable WHOIS + vuln + risk + pro report
+--whois            WHOIS + DNS recon
+--subdomains       With --whois: brute-force common subdomains
+--vuln             CVE lookup + SSL/TLS health checks
+--risk             0-100 risk score per host
+--output-pdf       Also export the pro report as a PDF (needs weasyprint)
 ```
+
+## Risk scoring (Pro)
+
+Each host gets a 0..100 score from the following ingredients:
+
+| Signal                                  | Contribution             |
+|-----------------------------------------|--------------------------|
+| Open-port volume                        | +2 per port (cap +20)    |
+| Sensitive service exposed               | +1..+25 per service      |
+| Default credentials known for service   | +6 per service           |
+| CVE found (CVSS-bucketed)               | +2..+12 per CVE (cap +30)|
+| Outdated software heuristic             | +6 per port              |
+| Expired / soon-to-expire TLS cert       | +3 / +8                  |
+| Self-signed TLS cert                    | +4                       |
+| Weak TLS protocols / ciphers            | +5 / +4                  |
+| No firewall detected (with open ports)  | +6                       |
+
+The score is capped at 100 and bucketed:
+
+| Range   | Level    | Badge color |
+|---------|----------|-------------|
+| 80..100 | CRITICAL | `#ff003c`   |
+| 60..79  | HIGH     | `#ff7700`   |
+| 40..59  | MEDIUM   | `#ffe600`   |
+| 20..39  | LOW      | `#00ff41`   |
+| 0..19   | INFO     | `#00cfff`   |
+
+Every contribution is recorded in `host.risk_factors` and rendered
+verbatim in the pro report so the score is fully auditable.
 
 ## Privileges
 
@@ -258,24 +308,26 @@ python exonet.py --target 192.168.1.1 --ports 1-1024 --timing 4
 | TCP scan        | connect()                 | SYN ("half-open")            |
 | UDP scan        | best-effort (open\|filt)  | best-effort (open\|filt)     |
 | MAC lookup      | OS arp cache              | live ARP                     |
+| WHOIS / DNS     | works unprivileged        | same                         |
+| CVE / SSL       | works unprivileged        | same                         |
+| Risk / firewall | works unprivileged        | same                         |
 
-On Windows without Npcap, Scapy is *imported* but raw sockets aren't
-usable; EXO NET detects this and silently falls back to the stdlib
-backend instead of crashing mid-scan.
+**All EXO NET Pro features run on Windows without admin rights**, with
+the single exception of SYN scan (which requires Npcap and admin
+rights). The pro modules use only outbound TCP/UDP/HTTPS, which doesn't
+need elevated privileges.
 
 ## Notes & limits
 
-- This is a learning tool. For real engagements use `nmap`, `masscan`,
-  or `rustscan`, and follow your organization's rules of engagement.
-- OS fingerprinting here is intentionally simple - just initial-TTL
-  bucketing. Will not survive against hosts that rewrite their TTL.
-- The bundled OUI table is hand-curated and short. Use `--oui-file` with
-  Wireshark's `manuf` for full coverage.
-- UDP scan classification is fundamentally limited without raw socket
-  access; treat `open|filtered` as "no response, could be either".
-- Screenshot fetching uses stdlib `urllib` and disables TLS verification
-  because lab gear typically uses self-signed certs.
-- The default-credentials reference is **display-only**; EXO NET never
-  attempts authentication. Information sourced from public vendor
-  documentation, distro install guides, and public-domain default
-  password lists.
+- This is a learning / lab tool. For real engagements, supplement with
+  `nmap`, `masscan`, `nuclei`, and your team's standard rules of
+  engagement.
+- OS fingerprinting is intentionally simple (initial-TTL bucketing).
+- The bundled OUI table is short. Use `--oui-file` with Wireshark's
+  `manuf` for full coverage.
+- UDP classification is fundamentally noisy without raw sockets; treat
+  `open|filtered` as "no response, could be either".
+- The CVE feed depends on cve.circl.lu being reachable. Offline runs
+  fall back to the built-in outdated-version heuristic.
+- The default-credentials reference is **display-only**; EXO NET Pro
+  never attempts authentication.

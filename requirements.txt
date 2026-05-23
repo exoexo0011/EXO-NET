@@ -1,2 +1,22 @@
+# Core
 colorama>=0.4.6
+
+# Optional capability libraries — every feature degrades gracefully if a
+# library here is missing. Install everything for the full EXO NET Pro
+# experience.
+
+# Raw-socket scanning (SYN scan, ARP sweep). Needs root + libpcap/Npcap.
 scapy>=2.5.0
+
+# EXO NET Pro: WHOIS + DNS
+python-whois>=0.9.0
+dnspython>=2.4.0
+
+# EXO NET Pro: CVE lookup + SSL certificate parsing
+requests>=2.31.0
+cryptography>=41.0.0
+
+# EXO NET Pro: PDF export of the pentest report.
+# weasyprint also requires system libs (Pango, GDK-PixBuf, cairo). On Debian:
+#   sudo apt install libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b
+weasyprint>=60.0

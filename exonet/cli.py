@@ -1,8 +1,9 @@
-"""Command-line entry point and scan orchestration.
+"""Command-line entry point and scan orchestration (EXO NET Pro).
 
 Run via the top-level shim::
 
     python exonet.py --target 192.168.1.0/24 --discover --scan
+    python exonet.py --target 192.168.1.0/24 --pro --report html --save
 """
 
 from __future__ import annotations
@@ -21,23 +22,28 @@ from . import (
     credentials,
     discovery,
     evasion as evasion_mod,
+    firewall as firewall_mod,
     osfp,
     oui,
     output,
     portscan,
     privilege,
     report,
+    report_pro,
+    risk as risk_mod,
     safety,
     screenshots,
     storage,
     timing,
     ui,
+    vuln,
+    whois as whois_mod,
 )
 from .types import HostResult, PortResult
 
 
 # -----------------------------------------------------------------------------
-# Argument parsing
+# Argument parsing helpers
 # -----------------------------------------------------------------------------
 
 def _parse_target(spec: str) -> ipaddress.IPv4Network:
@@ -90,9 +96,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="exonet.py",
         description=(
-            "EXO NET [ Advanced Network Reconnaissance ] - an educational "
-            "nmap-lite scanner. Use only on networks you own or have "
-            "explicit written permission to scan."
+            "EXO NET Pro [ Professional Ethical Hacking Toolkit ] - an "
+            "advanced reconnaissance and assessment scanner. Use only on "
+            "networks you own or have explicit written permission to test."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -103,14 +109,16 @@ def _build_parser() -> argparse.ArgumentParser:
             "  python exonet.py --target 192.168.1.1 --ports 1-1024 --timing 4\n"
             "  python exonet.py --target 192.168.1.1 --scan-type syn --os-detect\n"
             "  python exonet.py --target 192.168.1.0/24 --aggressive --report html,csv\n"
-            "  python exonet.py --target 192.168.1.0/24 --stealth --evasion\n"
-            "  python exonet.py --target 192.168.1.10 --udp --udp-ports 53,123,161\n"
-            "  python exonet.py --target 192.168.1.0/24 --aggressive --screenshots --save\n"
+            "\n"
+            "EXO NET Pro examples:\n"
+            "  python exonet.py --target 192.168.1.0/24 --pro --report html --save\n"
+            "  python exonet.py --target 192.168.1.1 --whois --vuln --risk --report html --save\n"
+            "  python exonet.py --target 192.168.1.1 --pro --output-pdf --save\n"
         ),
     )
 
     parser.add_argument("--version", action="version",
-                        version=f"EXO NET {__version__}")
+                        version=f"EXO NET Pro {__version__}")
 
     # ---- target & ports ----
     parser.add_argument("--target", required=True, type=_parse_target,
@@ -187,6 +195,25 @@ def _build_parser() -> argparse.ArgumentParser:
                              "for any detected services (display-only; the scanner "
                              "NEVER attempts to log in).")
 
+    # ---- EXO NET Pro flags --------------------------------------------------
+    pro_group = parser.add_argument_group("EXO NET Pro")
+    pro_group.add_argument("--pro", action="store_true",
+                           help="Enable ALL pro features: WHOIS + DNS + "
+                                "vulnerability checks + risk scoring + "
+                                "professional pentest report.")
+    pro_group.add_argument("--whois", action="store_true",
+                           help="Run WHOIS + DNS recon on each host's hostname/IP.")
+    pro_group.add_argument("--subdomains", action="store_true",
+                           help="With --whois, also brute-force common subdomains.")
+    pro_group.add_argument("--vuln", action="store_true",
+                           help="Look up CVEs for detected services and run "
+                                "SSL/TLS health checks on TLS ports.")
+    pro_group.add_argument("--risk", action="store_true",
+                           help="Compute a 0-100 risk score per host.")
+    pro_group.add_argument("--output-pdf", action="store_true",
+                           help="Also export the pro report as a PDF (requires "
+                                "weasyprint).")
+
     # ---- ux ----
     parser.add_argument("--no-banner", action="store_true",
                         help="Suppress the startup ASCII banner.")
@@ -205,7 +232,7 @@ def _build_parser() -> argparse.ArgumentParser:
 # -----------------------------------------------------------------------------
 
 def _apply_presets(args: argparse.Namespace) -> None:
-    """Translate --stealth / --aggressive into their underlying flags."""
+    """Translate --stealth / --aggressive / --pro into their underlying flags."""
     if args.stealth:
         args.timing = 1
         args.no_banners = True
@@ -218,6 +245,17 @@ def _apply_presets(args: argparse.Namespace) -> None:
         args.os_detect = True
         if not args.udp:
             args.udp = True
+
+    # --pro is additive, not exclusive. It fans out into the individual flags
+    # so users can still turn one feature off explicitly afterwards (argparse
+    # processes flags in order, but boolean store_true is idempotent).
+    if args.pro:
+        args.whois = True
+        args.vuln = True
+        args.risk = True
+        # If the user passed --pro without --report, they probably want HTML.
+        if not args.report:
+            args.report = ["html"]
 
 
 # -----------------------------------------------------------------------------
@@ -291,27 +329,140 @@ def _print_default_creds(hosts: List[HostResult]) -> None:
 
 
 # -----------------------------------------------------------------------------
+# Pro-summary stdout block (printed after the table)
+# -----------------------------------------------------------------------------
+
+def _print_pro_summary(hosts: List[HostResult]) -> None:
+    """Quick text summary of risk + firewall + CVE counts."""
+    if not hosts:
+        return
+    any_pro_data = any(
+        h.risk_level or h.firewall_info or h.whois_data or h.dns_records
+        or any(p.cves or p.ssl_info for p in h.ports)
+        for h in hosts
+    )
+    if not any_pro_data:
+        return
+    print()
+    print("=== EXO NET Pro summary ===")
+    for h in hosts:
+        bits = []
+        if h.risk_level is not None:
+            bits.append(f"risk={h.risk_level}({h.risk_score}/100)")
+        if h.firewall_info is not None:
+            fw = h.firewall_info
+            label = "fw=" + ("on" if fw.get("detected") else "off")
+            label += f"/{fw.get('confidence', '?')}"
+            bits.append(label)
+        n_cves = sum(len(p.cves or []) for p in h.open_ports)
+        if n_cves:
+            bits.append(f"cves={n_cves}")
+        n_subs = len(h.subdomains)
+        if n_subs:
+            bits.append(f"subdomains={n_subs}")
+        if not bits:
+            continue
+        print(f"  {h.ip:<16}  " + "  ".join(bits))
+
+
+# -----------------------------------------------------------------------------
 # Report writing
 # -----------------------------------------------------------------------------
 
 def _write_reports(hosts: List[HostResult], save_dir: Path,
-                   formats: List[str], target: str) -> None:
-    if not formats:
+                   formats: List[str], target: str, pro: bool,
+                   output_pdf: bool) -> None:
+    if not formats and not pro and not output_pdf:
         return
     generated_at = time.strftime("%Y-%m-%d %H:%M:%S %z").strip()
     for fmt in formats:
-        if fmt == "html":
-            dest = save_dir / "report.html"
-            report.write_html(hosts, dest, generated_at, target)
-        elif fmt == "csv":
-            dest = save_dir / "report.csv"
-            report.write_csv(hosts, dest)
-        elif fmt == "json":
-            dest = save_dir / "report.json"
-            report.write_json(hosts, dest)
-        else:
-            continue
-        ui.good(f"Report written: {dest}")
+        try:
+            if fmt == "html":
+                if pro:
+                    dest = save_dir / "report_pro.html"
+                    report_pro.write_html(hosts, dest, generated_at, target,
+                                          version=__version__)
+                else:
+                    dest = save_dir / "report.html"
+                    report.write_html(hosts, dest, generated_at, target)
+            elif fmt == "csv":
+                dest = save_dir / "report.csv"
+                report.write_csv(hosts, dest)
+            elif fmt == "json":
+                dest = save_dir / "report.json"
+                report.write_json(hosts, dest)
+            else:
+                continue
+            ui.good(f"Report written: {dest}")
+        except Exception as exc:
+            ui.warn(f"Failed to write {fmt} report: "
+                    f"{exc.__class__.__name__}: {exc}")
+
+    # PDF (pro only).
+    if output_pdf:
+        try:
+            dest = save_dir / "report_pro.pdf"
+            ok = report_pro.write_pdf(hosts, dest, generated_at, target,
+                                      version=__version__)
+            if ok:
+                ui.good(f"Report written: {dest}")
+        except Exception as exc:
+            ui.warn(f"Failed to write PDF report: "
+                    f"{exc.__class__.__name__}: {exc}")
+
+
+# -----------------------------------------------------------------------------
+# Pro phases
+# -----------------------------------------------------------------------------
+
+def _phase_whois(hosts: List[HostResult], with_subdomains: bool) -> None:
+    ui.info("WHOIS / DNS recon...")
+    for h in hosts:
+        try:
+            whois_mod.run(h, do_whois=True, do_dns=True,
+                          do_subdomains=with_subdomains)
+        except Exception as exc:
+            ui.warn(f"WHOIS/DNS phase error for {h.ip}: "
+                    f"{exc.__class__.__name__}: {exc}")
+
+
+def _phase_vuln(hosts: List[HostResult]) -> None:
+    ui.info("Vulnerability checks (CVE + SSL)...")
+    for h in hosts:
+        try:
+            vuln.run(h, do_cves=True, do_ssl=True)
+        except Exception as exc:
+            ui.warn(f"Vuln phase error for {h.ip}: "
+                    f"{exc.__class__.__name__}: {exc}")
+
+
+def _phase_firewall(hosts: List[HostResult]) -> None:
+    """Always cheap; runs whenever risk or firewall is needed."""
+    for h in hosts:
+        try:
+            firewall_mod.detect(h)
+        except Exception as exc:
+            ui.warn(f"Firewall analysis error for {h.ip}: "
+                    f"{exc.__class__.__name__}: {exc}")
+
+
+def _phase_risk(hosts: List[HostResult]) -> None:
+    ui.info("Computing risk scores...")
+    for h in hosts:
+        try:
+            risk_mod.annotate(h)
+        except Exception as exc:
+            ui.warn(f"Risk scoring error for {h.ip}: "
+                    f"{exc.__class__.__name__}: {exc}")
+    # Show a short breakdown.
+    breakdown = {}
+    for h in hosts:
+        breakdown[h.risk_level or "INFO"] = breakdown.get(h.risk_level or "INFO", 0) + 1
+    if breakdown:
+        rendered = " | ".join(f"{lvl}:{n}"
+                              for lvl in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO")
+                              for n in (breakdown.get(lvl, 0),) if n)
+        ui.good(f"Risk distribution: {rendered}")
 
 
 # -----------------------------------------------------------------------------
@@ -357,9 +508,9 @@ def run(args: argparse.Namespace) -> int:
         else:
             ui.warn(f"OUI file {args.oui_file} loaded 0 entries; using bundled table only.")
 
-    # Set up save directory if requested (or implied by --report / --screenshots).
+    # Set up save directory if requested (or implied by --report / --screenshots / --output-pdf).
     save_dir: Optional[Path] = None
-    needs_save = bool(args.save) or bool(args.report) or args.screenshots
+    needs_save = bool(args.save) or bool(args.report) or args.screenshots or args.output_pdf
     if needs_save:
         base = args.save or "./exonet_results"
         save_dir = storage.make_session_dir(base, str(args.target))
@@ -400,7 +551,8 @@ def run(args: argparse.Namespace) -> int:
             if args.output == "json":
                 output.render_json([])
             if save_dir:
-                _write_reports([], save_dir, args.report, str(args.target))
+                _write_reports([], save_dir, args.report, str(args.target),
+                               pro=args.pro, output_pdf=args.output_pdf)
             return 0
         ui.good(f"{len(hosts)} live host(s) discovered.")
 
@@ -410,9 +562,16 @@ def run(args: argparse.Namespace) -> int:
                 h.vendor = oui.lookup(h.mac, extra_oui)
             if args.os_detect:
                 h.os_guess = osfp.guess_from_ttl(h.ttl)
+        # Pro-only phases that don't need port data still run if requested.
+        if args.whois:
+            _phase_whois(hosts, with_subdomains=args.subdomains)
+        if args.risk or args.pro:
+            _phase_firewall(hosts)
+            _phase_risk(hosts)
         _render(hosts, args)
         if save_dir:
-            _write_reports(hosts, save_dir, args.report, str(args.target))
+            _write_reports(hosts, save_dir, args.report, str(args.target),
+                           pro=args.pro, output_pdf=args.output_pdf)
         return 0
 
     # ---- Phase 2: Port scan ------------------------------------------------
@@ -464,21 +623,37 @@ def run(args: argparse.Namespace) -> int:
                     png=args.screenshots_png,
                 )
 
+    # ---- Phase 5 (Pro): WHOIS / DNS recon ---------------------------------
+    if args.whois:
+        _phase_whois(hosts, with_subdomains=args.subdomains)
+
+    # ---- Phase 6 (Pro): Vulnerability checks ------------------------------
+    if args.vuln:
+        _phase_vuln(hosts)
+
+    # ---- Phase 7 (Pro): Firewall + risk -----------------------------------
+    if args.risk or args.pro:
+        _phase_firewall(hosts)
+        _phase_risk(hosts)
+
     elapsed = time.time() - t0
     ui.info(f"Scan finished in {elapsed:.2f}s.")
 
-    # ---- Phase 5: Output ---------------------------------------------------
+    # ---- Phase 8: Output --------------------------------------------------
     _render(hosts, args)
 
     if save_dir:
         # Default to writing both HTML and JSON when --save is given without --report.
-        formats = args.report
+        formats = list(args.report)
         if not formats and args.save:
             formats = ["html", "json"]
-        _write_reports(hosts, save_dir, formats, str(args.target))
+        _write_reports(hosts, save_dir, formats, str(args.target),
+                       pro=args.pro, output_pdf=args.output_pdf)
 
     if args.show_default_creds:
         _print_default_creds(hosts)
+
+    _print_pro_summary(hosts)
 
     return 0
 

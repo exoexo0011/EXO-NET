@@ -70,7 +70,7 @@ BANNER = r"""
 ╚══════╝╚═╝  ╚═╝ ╚═════╝     ╚═╝  ╚═══╝╚══════╝   ╚═╝   
 """
 
-TAGLINE = "[ Advanced Network Reconnaissance ]"
+TAGLINE = "EXO NET Pro [ Professional Ethical Hacking Toolkit ]"
 SUB_TAGLINE = "// Only scan networks you own or have explicit permission to scan"
 
 
