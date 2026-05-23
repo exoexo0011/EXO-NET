@@ -7,6 +7,11 @@ Auto-selection rules:
   * UDP scans are best-effort: without raw sockets we cannot distinguish
     "open" from "filtered" reliably, so we report ``open|filtered`` when no
     response is received.
+
+Evasion:
+  * If an :class:`EvasionPolicy` is supplied, every probe sleeps a random
+    0..jitter_max_s before firing, and TCP probes bind to a random ephemeral
+    source port.
 """
 
 from __future__ import annotations
@@ -17,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Iterable, List, Optional, Tuple
 
 from . import privilege, ui
+from .evasion import EvasionPolicy
 from .timing import TimingProfile
 from .types import PortResult
 
@@ -38,21 +44,39 @@ def _service_name(port: int, proto: str = "tcp") -> Optional[str]:
         return None
 
 
-# ---- TCP connect scan -------------------------------------------------------
-def _tcp_connect(ip: str, port: int, timeout: float) -> Tuple[bool, float]:
-    """Return (open?, latency_ms)."""
+# -----------------------------------------------------------------------------
+# TCP connect scan
+# -----------------------------------------------------------------------------
+def _tcp_connect(ip: str, port: int, timeout: float,
+                 evasion: Optional[EvasionPolicy]) -> Tuple[bool, float]:
+    """Return (open?, latency_ms). Honors evasion jitter + random source port."""
+    if evasion:
+        evasion.jitter()
     t0 = time.perf_counter()
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
         sock.settimeout(timeout)
+        if evasion:
+            sport = evasion.random_sport()
+            if sport is not None:
+                try:
+                    sock.bind(("", sport))
+                except OSError:
+                    # Port might be in use; let the OS pick instead.
+                    pass
         try:
             rc = sock.connect_ex((ip, port))
         except (socket.gaierror, OSError):
             return False, (time.perf_counter() - t0) * 1000
+    finally:
+        try: sock.close()
+        except Exception: pass
     return rc == 0, (time.perf_counter() - t0) * 1000
 
 
-def _probe_tcp_connect(ip: str, port: int, timeout: float) -> PortResult:
-    is_open, latency = _tcp_connect(ip, port, timeout)
+def _probe_tcp_connect(ip: str, port: int, timeout: float,
+                       evasion: Optional[EvasionPolicy]) -> PortResult:
+    is_open, latency = _tcp_connect(ip, port, timeout, evasion)
     return PortResult(
         port=port, proto="tcp",
         state="open" if is_open else "closed",
@@ -61,15 +85,22 @@ def _probe_tcp_connect(ip: str, port: int, timeout: float) -> PortResult:
     )
 
 
-# ---- TCP SYN scan -----------------------------------------------------------
-def _probe_tcp_syn(ip: str, port: int, timeout: float) -> PortResult:
+# -----------------------------------------------------------------------------
+# TCP SYN scan
+# -----------------------------------------------------------------------------
+def _probe_tcp_syn(ip: str, port: int, timeout: float,
+                   evasion: Optional[EvasionPolicy]) -> PortResult:
     """SYN scan via Scapy. Caller must verify scapy_l3_usable() first."""
     from scapy.all import IP, TCP, sr1  # type: ignore
+    if evasion:
+        evasion.jitter()
+    sport = (evasion.random_sport() if evasion else None) or 0
     state = "filtered"
     t0 = time.perf_counter()
     try:
-        reply = sr1(IP(dst=ip) / TCP(dport=port, flags="S"),
-                    timeout=timeout, verbose=0)
+        tcp_layer = TCP(dport=port, flags="S") if sport == 0 \
+            else TCP(sport=sport, dport=port, flags="S")
+        reply = sr1(IP(dst=ip) / tcp_layer, timeout=timeout, verbose=0)
         if reply is None or not reply.haslayer(TCP):
             state = "filtered"
         else:
@@ -78,8 +109,9 @@ def _probe_tcp_syn(ip: str, port: int, timeout: float) -> PortResult:
                 state = "open"
                 # Be polite: send RST so we don't leave a half-open conn.
                 try:
-                    sr1(IP(dst=ip) / TCP(dport=port, flags="R"),
-                        timeout=timeout, verbose=0)
+                    rst_tcp = TCP(dport=port, flags="R") if sport == 0 \
+                        else TCP(sport=sport, dport=port, flags="R")
+                    sr1(IP(dst=ip) / rst_tcp, timeout=timeout, verbose=0)
                 except Exception:
                     pass
             elif (flags & 0x14) == 0x14:      # RST/ACK
@@ -94,14 +126,16 @@ def _probe_tcp_syn(ip: str, port: int, timeout: float) -> PortResult:
     )
 
 
-# ---- UDP scan ---------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# UDP scan
+# -----------------------------------------------------------------------------
 # Protocol-specific probes that elicit responses from common UDP services.
 _UDP_PROBES = {
     53:   bytes.fromhex(                       # DNS query for 'version.bind' CHAOS TXT
         "abcd01000001000000000000"
         "0776657273696f6e0462696e6400001000030000291000000000000000"
     ),
-    123:  bytes(48) if False else b"\x1b" + bytes(47),  # NTP v3 client
+    123:  b"\x1b" + bytes(47),                 # NTP v3 client
     161:  bytes.fromhex(                       # SNMPv1 GET sysDescr.0, community 'public'
         "302902010004067075626c6963a01c020401020304020100020100"
         "300e300c06082b060102010101000500"
@@ -115,13 +149,23 @@ _UDP_PROBES = {
 }
 
 
-def _probe_udp(ip: str, port: int, timeout: float) -> PortResult:
+def _probe_udp(ip: str, port: int, timeout: float,
+               evasion: Optional[EvasionPolicy]) -> PortResult:
     """Best-effort UDP probe using stdlib sockets."""
+    if evasion:
+        evasion.jitter()
     payload = _UDP_PROBES.get(port, b"\x00")
     t0 = time.perf_counter()
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.settimeout(timeout)
+            if evasion:
+                sport = evasion.random_sport()
+                if sport is not None:
+                    try:
+                        sock.bind(("", sport))
+                    except OSError:
+                        pass
             sock.sendto(payload, (ip, port))
             try:
                 data, _ = sock.recvfrom(2048)
@@ -140,7 +184,9 @@ def _probe_udp(ip: str, port: int, timeout: float) -> PortResult:
     )
 
 
-# ---- scan-type resolution ---------------------------------------------------
+# -----------------------------------------------------------------------------
+# Scan-type resolution
+# -----------------------------------------------------------------------------
 def resolve_scan_type(requested: str) -> str:
     """Pick the actual TCP scan type given user request and runtime caps."""
     if requested == "syn":
@@ -154,12 +200,15 @@ def resolve_scan_type(requested: str) -> str:
     return "connect"  # explicit
 
 
-# ---- top-level scan ---------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Top-level scan
+# -----------------------------------------------------------------------------
 def scan_tcp(
     ip: str,
     ports: Iterable[int],
     timing: TimingProfile,
     scan_type: str,             # 'connect' | 'syn'
+    evasion: Optional[EvasionPolicy] = None,
     progress=None,
 ) -> List[PortResult]:
     port_list = list(ports)
@@ -168,7 +217,7 @@ def scan_tcp(
     workers = max(1, min(timing.threads, len(port_list)))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futs = {
-            pool.submit(probe, ip, p, timing.timeout): p for p in port_list
+            pool.submit(probe, ip, p, timing.timeout, evasion): p for p in port_list
         }
         for fut in as_completed(futs):
             try:
@@ -187,6 +236,7 @@ def scan_udp(
     ip: str,
     ports: Iterable[int],
     timing: TimingProfile,
+    evasion: Optional[EvasionPolicy] = None,
     progress=None,
 ) -> List[PortResult]:
     port_list = list(ports)
@@ -194,7 +244,7 @@ def scan_udp(
     workers = max(1, min(timing.threads, len(port_list)))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futs = {
-            pool.submit(_probe_udp, ip, p, timing.timeout): p for p in port_list
+            pool.submit(_probe_udp, ip, p, timing.timeout, evasion): p for p in port_list
         }
         for fut in as_completed(futs):
             try:

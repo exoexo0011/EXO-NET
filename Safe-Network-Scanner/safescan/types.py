@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -14,6 +14,7 @@ class PortResult:
     state: str = "closed"            # open, closed, filtered, open|filtered
     service: Optional[str] = None    # /etc/services name (best-effort)
     banner: Optional[str] = None     # protocol-specific banner / version string
+    details: Dict[str, str] = field(default_factory=dict)  # structured fingerprint data
     latency_ms: Optional[float] = None
 
 

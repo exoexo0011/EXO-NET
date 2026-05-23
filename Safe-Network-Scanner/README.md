@@ -1,8 +1,8 @@
 # Safe-Network-Scanner
 
 An educational, nmap-lite Python network scanner. Discovers live hosts,
-fingerprints services, and reports results as a colored table or structured
-JSON.
+fingerprints services, captures HTTP page snapshots, and emits results
+as a colored table, JSON, CSV, or a self-contained HTML report.
 
 > **Use only on networks you own or have explicit written permission to scan.**
 > Unauthorized scanning may be illegal in your jurisdiction.
@@ -10,23 +10,35 @@ JSON.
 ## Features
 
 - **Layered host discovery** - ARP sweep (when privileged + Scapy L2) +
-  ICMP echo + TCP-ping fallback for ICMP-blocked hosts.
-- **Scan types** - TCP `connect` (always works), TCP `SYN` (raw, fast,
-  needs root + libpcap/Npcap), UDP (best-effort with protocol-aware probes
-  for DNS/NTP/SNMP/NetBIOS/SSDP).
-- **Service / version detection** - banner grabbers for SSH, FTP, SMTP,
-  HTTP, HTTPS (TLS), SMB2 (with dialect parsing), RDP (X.224 + nego
-  response), VNC, plus a generic passive grab for unknown ports.
-- **OS fingerprinting** - basic TTL rounding (64 / 128 / 255).
+  ICMP echo + TCP-ping fallback for ICMP-blocked hosts. Reverse DNS on
+  alive hosts.
+- **Multiple scan types** - TCP `connect` (always works), TCP `SYN` (raw,
+  fast, needs root + libpcap/Npcap), UDP best-effort with protocol-aware
+  probes for DNS / NTP / SNMP / NetBIOS / SSDP.
+- **Service & version detection** - structured fingerprinters for SSH
+  (protocol + software + comments), HTTP/HTTPS (`Server:` header + page
+  `<title>`), SMB2 (NEGOTIATE with dialect parsing), RDP (X.224 + nego
+  protocols), plus passive grabbers for FTP / SMTP / POP3 / IMAP / VNC
+  and a generic fallback.
+- **Basic OS fingerprinting** - TTL bucketing (64 / 128 / 255).
 - **MAC + vendor lookup** - Scapy ARP when privileged, system `arp` cache
-  otherwise; vendor names from a small embedded OUI table.
-- **Timing profiles** - `--timing 0..5` mirroring nmap's T0-T5.
+  otherwise. Vendor names from a small embedded OUI table; load a full
+  IEEE / Wireshark `manuf` file with `--oui-file PATH` to widen coverage.
+- **nmap-style timing** - `--timing 0..5` mirroring T0-T5.
 - **Stealth / Aggressive presets** - one-flag scan profiles.
-- **Output** - colored ASCII table (default) or JSON (`--output json`).
-- **Progress bar** on stderr (kept off when not a TTY so JSON stays clean).
-- **Windows-safe** - never crashes on missing Npcap; transparently falls
-  back to TCP connect + subprocess ping when raw sockets aren't available.
-- **Public-IP guard** - refuses to scan non-private ranges without
+- **Evasion** - `--evasion` adds <=0.5s random per-probe jitter and
+  randomizes source ports (TCP connect bind() + Scapy `sport=`).
+- **Reports** - colored ASCII table on stdout (default), or write any of
+  HTML / CSV / JSON files to disk via `--report` + `--save`.
+- **Screenshots** - `--screenshots` saves HTML body + response headers for
+  every open HTTP/HTTPS port. Add `playwright` (optional) for PNG.
+- **Default-credentials awareness** - `--show-default-creds` prints
+  historical default usernames/passwords for the services it found, as a
+  reminder to rotate them. *The scanner never attempts logins.*
+- **Windows-safe** - probes Scapy L3/L2 capability up front; transparently
+  falls back to TCP connect + subprocess ping when raw sockets aren't
+  available (e.g. no Npcap on Windows).
+- **Public-IP guard** - refuses to scan non-RFC1918 ranges without
   `--allow-public`.
 
 ## Layout
@@ -34,18 +46,23 @@ JSON.
 ```
 Safe-Network-Scanner/
 ├── network_scanner.py      # thin CLI shim
-├── safescan/               # the real scanner
+├── safescan/
 │   ├── cli.py              # argparse + orchestration
-│   ├── discovery.py        # ARP / ICMP / TCP-ping
-│   ├── portscan.py         # TCP connect, TCP SYN, UDP
-│   ├── banners.py          # protocol-specific version grabbers
+│   ├── discovery.py        # ARP / ICMP / TCP-ping + reverse DNS
+│   ├── portscan.py         # TCP connect, TCP SYN, UDP (with evasion hooks)
+│   ├── banners.py          # SSH / HTTP(S) / SMB2 / RDP / generic
 │   ├── osfp.py             # TTL-based OS guess
-│   ├── oui.py              # MAC vendor lookup
-│   ├── output.py           # table + JSON renderers
+│   ├── oui.py              # MAC vendor lookup (+ load_from_file)
+│   ├── output.py           # stdout: colored table / JSON
+│   ├── report.py           # files: HTML / CSV / JSON
+│   ├── screenshots.py      # HTTP/HTTPS HTML + headers + optional PNG
+│   ├── credentials.py      # default-creds reference table (display-only)
+│   ├── evasion.py          # jitter + random source port policy
+│   ├── storage.py          # timestamped session directory
 │   ├── privilege.py        # admin + Scapy capability probes
 │   ├── safety.py           # public-IP guard
 │   ├── timing.py           # T0..T5 profiles
-│   ├── ui.py               # colors, banner, progress bar
+│   ├── ui.py               # colors, banner, progress bar (stderr)
 │   └── types.py            # HostResult / PortResult dataclasses
 └── requirements.txt
 ```
@@ -56,83 +73,180 @@ Safe-Network-Scanner/
 python -m venv .venv
 source .venv/bin/activate           # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+
+# Optional - enable PNG screenshots:
+pip install playwright
+playwright install chromium
 ```
 
 `scapy` is optional. Without it (or without Npcap on Windows / root on
-Unix) the scanner uses `socket.connect` + `subprocess.ping` and skips ARP.
+Unix) the scanner falls back to `socket.connect` + `subprocess.ping`
+and skips the ARP sweep.
 
 ## Run
 
+### Basic
+
 ```bash
-# Single host, common ports:
+# Single host, common ports, banners, table output:
 python network_scanner.py --target 192.168.1.1
 
-# /24 host discovery only:
+# Discover live hosts on a /24 (no port scan):
 python network_scanner.py --target 192.168.1.0/24 --discover
 
 # Discover then port-scan every live host:
 python network_scanner.py --target 192.168.1.0/24 --discover --scan
-
-# Custom port range + faster timing + JSON output:
-python network_scanner.py --target 192.168.1.1 --ports 1-1024 \
-    --timing 4 --output json
-
-# Aggressive preset (T4 + UDP + OS detect + banners):
-python network_scanner.py --target 192.168.1.0/24 --aggressive
-
-# Stealth preset (T1 + SYN + no banners):
-sudo python network_scanner.py --target 192.168.1.0/24 --stealth
-
-# Force TCP connect (bypass any SYN attempt):
-python network_scanner.py --target 192.168.1.1 --scan-type connect
-
-# UDP-only set:
-python network_scanner.py --target 192.168.1.10 --udp --udp-ports 53,123,161
 ```
 
-### Privileges
+### Reports & saving
 
-| Capability        | Unprivileged              | Root + Scapy + libpcap/Npcap |
-|-------------------|---------------------------|------------------------------|
-| Host discovery    | system ping + TCP-ping    | ARP sweep + ICMP via Scapy   |
-| TCP scan          | connect()                 | SYN ("half-open")            |
-| UDP scan          | best-effort (open\|filt)  | best-effort (open\|filt)     |
-| MAC lookup        | OS arp cache              | live ARP                     |
+```bash
+# Save a timestamped session under ./safescan_results/ with HTML + JSON:
+python network_scanner.py --target 192.168.1.0/24 --discover --scan --save
 
-On Windows without Npcap, Scapy is *imported* but raw sockets aren't
-usable; the scanner detects this and silently falls back to the stdlib
-backend instead of crashing mid-scan.
+# Pick formats and a custom base directory:
+python network_scanner.py --target 192.168.1.0/24 --discover --scan \
+    --save /tmp/recon --report html,csv,json
+
+# JSON to stdout for piping:
+python network_scanner.py --target 192.168.1.1 --output json > scan.json
+```
+
+### Screenshots
+
+```bash
+# Save HTML body + response headers from every open HTTP/HTTPS port:
+python network_scanner.py --target 192.168.1.0/24 --discover --scan \
+    --screenshots --save
+
+# Same, plus PNG screenshots (needs playwright):
+python network_scanner.py --target 192.168.1.0/24 --discover --scan \
+    --screenshots --screenshots-png --save
+```
+
+Output layout:
+```
+safescan_results/20260523_044021_192.168.1.0_24/
+├── report.html
+├── report.json
+├── report.csv
+└── screenshots/
+    ├── 192_168_1_10_80.html
+    ├── 192_168_1_10_80.headers.txt
+    ├── 192_168_1_10_80.png            (if playwright installed)
+    └── ...
+```
+
+### Stealth / Aggressive / Evasion
+
+```bash
+# Aggressive preset: T4 + UDP + banners + OS detect + reports:
+python network_scanner.py --target 192.168.1.0/24 --aggressive \
+    --report html,csv --save
+
+# Stealth preset on a privileged shell (T1 + SYN, no banners):
+sudo python network_scanner.py --target 192.168.1.0/24 --stealth
+
+# Add evasion (random jitter + random source ports) to any scan:
+python network_scanner.py --target 192.168.1.1 --ports 1-1024 --evasion
+```
+
+### MAC vendor lookup with an external OUI file
+
+```bash
+# Wireshark 'manuf' format (or IEEE oui.txt) - dramatically expands the
+# bundled hand-curated list:
+python network_scanner.py --target 192.168.1.0/24 --discover \
+    --oui-file /usr/share/wireshark/manuf
+```
+
+### Default-credentials awareness
+
+```bash
+# Reminder list for any services we identified - DISPLAY ONLY.
+# The scanner never attempts to authenticate.
+python network_scanner.py --target 192.168.1.10 --show-default-creds
+```
+
+Sample output:
+```
+=== Default credentials reference (informational) ===
+Sources: vendor manuals + public-domain default-password lists.
+If any of your gear still uses these, ROTATE THEM NOW.
+The scanner does NOT attempt these credentials. This is a memory-aid only.
+
+  SSH - found on: 192.168.1.10:22 (myhost.lan)
+              'root' : 'root'
+              'root' : 'toor'
+             'admin' : 'admin'
+                'pi' : 'raspberry'
+              'ubnt' : 'ubnt'
+```
+
+### Specific scan-type / UDP / port range
+
+```bash
+# Force TCP connect (Windows-friendly, no Npcap needed):
+python network_scanner.py --target 192.168.1.10 --scan-type connect
+
+# UDP-only on common services:
+python network_scanner.py --target 192.168.1.10 --udp \
+    --udp-ports 53,123,161,137,1900
+
+# Big port range with faster timing:
+python network_scanner.py --target 192.168.1.1 --ports 1-1024 --timing 4
+```
 
 ## CLI reference
 
 ```
 --target           IP or CIDR  (required)
 --ports            TCP ports: '80', '22,80,443', '1-1024', or any mix
---udp              Also run a UDP scan
---udp-ports        UDP ports list (same syntax as --ports)
---discover         Run host discovery
---scan             Run port scan (implied for single hosts)
---scan-type        auto | connect | syn       (default auto)
---timing 0-5       nmap-style template        (default 3)
---stealth          Preset: T1, no banners, no OS detect, prefer SYN
---aggressive       Preset: T4, UDP, banners, OS detect
---no-arp           Skip ARP layer in discovery
---no-tcp-ping      Skip TCP-ping fallback in discovery
---no-banners       Skip version grabbing on open ports
---os-detect        Enable TTL-based OS fingerprint
---output           table | json               (default table)
---no-banner        Hide the startup ASCII banner
---no-progress      Hide the progress bar
---allow-public     Required to scan non-private IP ranges
+--udp / --udp-ports
+--discover / --scan
+--scan-type        auto | connect | syn   (default auto)
+--timing 0-5       0=paranoid 1=sneaky 2=polite 3=normal 4=aggressive 5=insane
+--stealth          Preset: T1 + SYN + no banners + no OS detect
+--aggressive       Preset: T4 + UDP + banners + OS detect
+--no-arp / --no-tcp-ping / --no-banners
+--os-detect        TTL-based OS guess
+--oui-file PATH    External Wireshark/IEEE OUI file
+--evasion          Random jitter + random source ports
+--output           table | json   (stdout)
+--report html,csv,json   File reports written under --save
+--save [DIR]       Timestamped session dir (default base ./safescan_results)
+--screenshots / --screenshots-png    HTTP HTML + headers (+ optional PNG)
+--show-default-creds      Display-only credential awareness
+--no-banner / --no-progress
+--allow-public     Required to scan non-RFC1918 ranges
 ```
+
+## Privileges
+
+| Capability      | Unprivileged              | Root + Scapy + libpcap/Npcap |
+|-----------------|---------------------------|------------------------------|
+| Host discovery  | system ping + TCP-ping    | ARP sweep + ICMP via Scapy   |
+| TCP scan        | connect()                 | SYN ("half-open")            |
+| UDP scan        | best-effort (open\|filt)  | best-effort (open\|filt)     |
+| MAC lookup      | OS arp cache              | live ARP                     |
+
+On Windows without Npcap, Scapy is *imported* but raw sockets aren't
+usable; the scanner detects this and silently falls back to the stdlib
+backend instead of crashing mid-scan.
 
 ## Notes & limits
 
-- This is a learning tool. For real engagements use `nmap`, `masscan`, or
-  `rustscan`, and follow your organization's rules of engagement.
+- This is a learning tool. For real engagements use `nmap`, `masscan`,
+  or `rustscan`, and follow your organization's rules of engagement.
 - OS fingerprinting here is intentionally simple - just initial-TTL
-  bucketing. It will not survive against hosts that rewrite their TTL.
-- The OUI table is hand-curated and short. Unrecognized vendors render
-  as `mac=xx:xx:xx:xx:xx:xx` with no vendor tag.
+  bucketing. Will not survive against hosts that rewrite their TTL.
+- The bundled OUI table is hand-curated and short. Use `--oui-file` with
+  Wireshark's `manuf` for full coverage.
 - UDP scan classification is fundamentally limited without raw socket
   access; treat `open|filtered` as "no response, could be either".
+- Screenshot fetching uses stdlib `urllib` and disables TLS verification
+  because lab gear typically uses self-signed certs.
+- The default-credentials reference is **display-only**; the scanner
+  never attempts authentication. Information sourced from public vendor
+  documentation, distro install guides, and public-domain default
+  password lists.

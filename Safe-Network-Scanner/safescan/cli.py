@@ -12,11 +12,27 @@ import ipaddress
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import List, Optional
 
 from . import __version__
 from . import banners as banners_mod
-from . import discovery, osfp, oui, output, portscan, privilege, safety, timing, ui
+from . import (
+    credentials,
+    discovery,
+    evasion as evasion_mod,
+    osfp,
+    oui,
+    output,
+    portscan,
+    privilege,
+    report,
+    safety,
+    screenshots,
+    storage,
+    timing,
+    ui,
+)
 from .types import HostResult, PortResult
 
 
@@ -52,6 +68,24 @@ def _parse_ports(spec: str) -> List[int]:
     return sorted(ports)
 
 
+def _parse_report(spec: str) -> List[str]:
+    """Comma-separated list of {html,csv,json}. Empty -> []."""
+    if not spec:
+        return []
+    valid = {"html", "csv", "json"}
+    out: List[str] = []
+    for chunk in spec.split(","):
+        c = chunk.strip().lower()
+        if not c:
+            continue
+        if c not in valid:
+            raise argparse.ArgumentTypeError(
+                f"Invalid --report value '{c}'. Choices: html, csv, json.")
+        if c not in out:
+            out.append(c)
+    return out
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="network_scanner.py",
@@ -67,9 +101,10 @@ def _build_parser() -> argparse.ArgumentParser:
             "  python network_scanner.py --target 192.168.1.0/24 --discover --scan\n"
             "  python network_scanner.py --target 192.168.1.1 --ports 1-1024 --timing 4\n"
             "  python network_scanner.py --target 192.168.1.1 --scan-type syn --os-detect\n"
-            "  python network_scanner.py --target 192.168.1.0/24 --aggressive --output json\n"
-            "  python network_scanner.py --target 192.168.1.0/24 --stealth\n"
+            "  python network_scanner.py --target 192.168.1.0/24 --aggressive --report html,csv\n"
+            "  python network_scanner.py --target 192.168.1.0/24 --stealth --evasion\n"
             "  python network_scanner.py --target 192.168.1.10 --udp --udp-ports 53,123,161\n"
+            "  python network_scanner.py --target 192.168.1.0/24 --aggressive --screenshots --save\n"
         ),
     )
 
@@ -85,8 +120,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--udp", action="store_true",
                         help="Also run a UDP scan.")
     parser.add_argument("--udp-ports", default=None,
-                        help="UDP ports list (same syntax as --ports). "
-                             "Defaults to common UDP services.")
+                        help="UDP ports list (same syntax as --ports).")
 
     # ---- phase selection ----
     parser.add_argument("--discover", action="store_true",
@@ -107,9 +141,9 @@ def _build_parser() -> argparse.ArgumentParser:
                              "2=polite, 3=normal (default), 4=aggressive, 5=insane.")
     profile_group = parser.add_mutually_exclusive_group()
     profile_group.add_argument("--stealth", action="store_true",
-                               help="Shortcut: --timing 1, no banner grabs, no OS detect.")
+                               help="Preset: T1, no banner grabs, no OS detect.")
     profile_group.add_argument("--aggressive", action="store_true",
-                               help="Shortcut: --timing 4, banners on, OS detect on, UDP top ports.")
+                               help="Preset: T4 + UDP + banners + OS detect.")
 
     # ---- discovery / detection toggles ----
     parser.add_argument("--no-arp", action="store_true",
@@ -120,12 +154,41 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Skip banner / version grabbing on open ports.")
     parser.add_argument("--os-detect", action="store_true",
                         help="Enable basic OS fingerprinting (TTL-based).")
+    parser.add_argument("--oui-file", default=None, metavar="PATH",
+                        help="Load an external OUI database file for MAC vendor "
+                             "lookup (Wireshark manuf or IEEE oui.txt format).")
 
-    # ---- output ----
+    # ---- evasion ----
+    parser.add_argument("--evasion", action="store_true",
+                        help="Enable mild evasion: random inter-probe jitter "
+                             "(<=0.5s) and random source ports.")
+
+    # ---- output / save ----
     parser.add_argument("--output", choices=["table", "json"], default="table",
-                        help="Output format. (default: table)")
+                        help="stdout output format. (default: table)")
+    parser.add_argument("--report", type=_parse_report, default=[],
+                        metavar="FORMATS",
+                        help="Comma-separated report files to write (under --save). "
+                             "Choices: html, csv, json. Example: --report html,csv")
+    parser.add_argument("--save", nargs="?", const="./safescan_results", default=None,
+                        metavar="DIR",
+                        help="Save results to a timestamped subdirectory. Optional "
+                             "DIR is the base path (default ./safescan_results).")
+    parser.add_argument("--screenshots", action="store_true",
+                        help="Capture HTML + headers from open HTTP/HTTPS ports. "
+                             "Implies --save. Add 'playwright' for PNG screenshots.")
+    parser.add_argument("--screenshots-png", action="store_true",
+                        help="Also capture PNG screenshots (requires playwright).")
+
+    # ---- credentials awareness ----
+    parser.add_argument("--show-default-creds", action="store_true",
+                        help="After the scan, print historical default credentials "
+                             "for any detected services (display-only; the scanner "
+                             "NEVER attempts to log in).")
+
+    # ---- ux ----
     parser.add_argument("--no-banner", action="store_true",
-                        help="Suppress the startup banner.")
+                        help="Suppress the startup ASCII banner.")
     parser.add_argument("--no-progress", action="store_true",
                         help="Disable the progress bar.")
 
@@ -146,7 +209,6 @@ def _apply_presets(args: argparse.Namespace) -> None:
         args.timing = 1
         args.no_banners = True
         args.os_detect = False
-        # Stealth implies SYN if possible (less noisy than full connect).
         if args.scan_type == "auto":
             args.scan_type = "syn"
     elif args.aggressive:
@@ -158,12 +220,11 @@ def _apply_presets(args: argparse.Namespace) -> None:
 
 
 # -----------------------------------------------------------------------------
-# Banner grabbing (parallel across hosts/ports)
+# Banner grabbing (parallel across all open ports of all hosts)
 # -----------------------------------------------------------------------------
 
 def _grab_banners(hosts: List[HostResult], timeout: float, threads: int,
                   progress: Optional[ui.ProgressBar]) -> None:
-    """Populate `banner` on all open ports across all hosts."""
     jobs: list[tuple[HostResult, PortResult]] = []
     for h in hosts:
         for p in h.open_ports:
@@ -173,7 +234,9 @@ def _grab_banners(hosts: List[HostResult], timeout: float, threads: int,
         return
 
     def _work(host: HostResult, pr: PortResult):
-        pr.banner = banners_mod.grab(host.ip, pr.port, timeout)
+        banner_str, details = banners_mod.grab(host.ip, pr.port, timeout)
+        pr.banner = banner_str
+        pr.details = details or {}
 
     workers = max(1, min(threads, len(jobs)))
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -185,6 +248,69 @@ def _grab_banners(hosts: List[HostResult], timeout: float, threads: int,
                 pass
             if progress:
                 progress.tick()
+
+
+# -----------------------------------------------------------------------------
+# Default-credentials awareness output
+# -----------------------------------------------------------------------------
+
+def _print_default_creds(hosts: List[HostResult]) -> None:
+    """Print historical default credentials for services detected in the scan.
+
+    This is purely informational - the scanner never authenticates with these.
+    """
+    seen: dict[str, list[tuple[str, str, int]]] = {}
+    for h in hosts:
+        for p in h.open_ports:
+            svc = (p.service or "").lower()
+            if not svc:
+                continue
+            defaults = credentials.lookup(svc)
+            if not defaults:
+                continue
+            seen.setdefault(svc, []).append((h.ip, h.hostname or "", p.port))
+
+    if not seen:
+        return
+
+    print()
+    print("=== Default credentials reference (informational) ===")
+    print("Sources: vendor manuals + public-domain default-password lists.")
+    print("If any of your gear still uses these, ROTATE THEM NOW.")
+    print("The scanner does NOT attempt these credentials. This is a "
+          "memory-aid only.\n")
+    for svc, instances in sorted(seen.items()):
+        defaults = credentials.lookup(svc)
+        host_strs = [f"{ip}:{port}" + (f" ({hn})" if hn else "")
+                     for ip, hn, port in instances]
+        print(f"  {svc.upper()} - found on: {', '.join(host_strs)}")
+        for user, pw in defaults:
+            print(f"    {user!r:>16} : {pw!r}")
+        print()
+
+
+# -----------------------------------------------------------------------------
+# Report writing
+# -----------------------------------------------------------------------------
+
+def _write_reports(hosts: List[HostResult], save_dir: Path,
+                   formats: List[str], target: str) -> None:
+    if not formats:
+        return
+    generated_at = time.strftime("%Y-%m-%d %H:%M:%S %z").strip()
+    for fmt in formats:
+        if fmt == "html":
+            dest = save_dir / "report.html"
+            report.write_html(hosts, dest, generated_at, target)
+        elif fmt == "csv":
+            dest = save_dir / "report.csv"
+            report.write_csv(hosts, dest)
+        elif fmt == "json":
+            dest = save_dir / "report.json"
+            report.write_json(hosts, dest)
+        else:
+            continue
+        ui.good(f"Report written: {dest}")
 
 
 # -----------------------------------------------------------------------------
@@ -200,8 +326,13 @@ def run(args: argparse.Namespace) -> int:
 
     _apply_presets(args)
     profile = timing.get(args.timing)
-    ui.info(f"Timing: T{args.timing} ({profile.name}) | "
-            f"caps: {privilege.describe_capabilities()}")
+    evasion_policy = evasion_mod.from_args(args.evasion)
+
+    cap_line = (f"Timing: T{args.timing} ({profile.name}) | "
+                f"caps: {privilege.describe_capabilities()}")
+    if evasion_policy.enabled:
+        cap_line += f" | evasion: jitter<={evasion_policy.jitter_max_s}s, random sport"
+    ui.info(cap_line)
 
     # Resolve TCP scan strategy now that capabilities are probed.
     tcp_scan = portscan.resolve_scan_type(args.scan_type)
@@ -216,13 +347,29 @@ def run(args: argparse.Namespace) -> int:
         ui.bad(f"Invalid port list: {exc}")
         return 2
 
+    # Optional external OUI table.
+    extra_oui: dict = {}
+    if args.oui_file:
+        extra_oui = oui.load_from_file(args.oui_file)
+        if extra_oui:
+            ui.info(f"Loaded {len(extra_oui)} OUI entries from {args.oui_file}")
+        else:
+            ui.warn(f"OUI file {args.oui_file} loaded 0 entries; using bundled table only.")
+
+    # Set up save directory if requested (or implied by --report / --screenshots).
+    save_dir: Optional[Path] = None
+    needs_save = bool(args.save) or bool(args.report) or args.screenshots
+    if needs_save:
+        base = args.save or "./safescan_results"
+        save_dir = storage.make_session_dir(base, str(args.target))
+        ui.info(f"Saving outputs to {save_dir}")
+
     is_single_host = network.num_addresses == 1
     do_discover = args.discover or (not is_single_host and not args.scan)
     do_scan = args.scan or is_single_host or do_discover
 
     # ---- Phase 1: Discovery ------------------------------------------------
     if is_single_host:
-        # Skip the broadcast layers for a single target; just probe it.
         host = HostResult(ip=str(network.network_address), alive=True,
                           discovered_via=["assumed"])
         host.hostname = discovery.reverse_dns(host.ip)
@@ -231,7 +378,6 @@ def run(args: argparse.Namespace) -> int:
             host.ttl = ttl
             if "icmp" not in host.discovered_via:
                 host.discovered_via.append("icmp")
-        # Try to fill MAC from system ARP cache (works if the host is on-LAN).
         arp_table = discovery.parse_system_arp_table()
         if host.ip in arp_table:
             host.mac = arp_table[host.ip]
@@ -252,17 +398,20 @@ def run(args: argparse.Namespace) -> int:
             ui.warn("No live hosts found.")
             if args.output == "json":
                 output.render_json([])
+            if save_dir:
+                _write_reports([], save_dir, args.report, str(args.target))
             return 0
         ui.good(f"{len(hosts)} live host(s) discovered.")
 
     if not do_scan:
-        # Discovery-only mode: still enrich with vendor + OS guess for reporting.
         for h in hosts:
             if h.mac:
-                h.vendor = oui.lookup(h.mac)
+                h.vendor = oui.lookup(h.mac, extra_oui)
             if args.os_detect:
                 h.os_guess = osfp.guess_from_ttl(h.ttl)
         _render(hosts, args)
+        if save_dir:
+            _write_reports(hosts, save_dir, args.report, str(args.target))
         return 0
 
     # ---- Phase 2: Port scan ------------------------------------------------
@@ -274,11 +423,13 @@ def run(args: argparse.Namespace) -> int:
     t0 = time.time()
     for host in hosts:
         host.ports.extend(
-            portscan.scan_tcp(host.ip, tcp_ports, profile, tcp_scan, progress=scan_prog)
+            portscan.scan_tcp(host.ip, tcp_ports, profile, tcp_scan,
+                              evasion=evasion_policy, progress=scan_prog)
         )
         if args.udp:
             host.ports.extend(
-                portscan.scan_udp(host.ip, udp_ports, profile, progress=scan_prog)
+                portscan.scan_udp(host.ip, udp_ports, profile,
+                                  evasion=evasion_policy, progress=scan_prog)
             )
     if scan_prog: scan_prog.close()
 
@@ -294,14 +445,40 @@ def run(args: argparse.Namespace) -> int:
 
     for host in hosts:
         if host.mac:
-            host.vendor = oui.lookup(host.mac)
+            host.vendor = oui.lookup(host.mac, extra_oui)
         if args.os_detect:
             host.os_guess = osfp.guess_from_ttl(host.ttl)
+
+    # ---- Phase 4: Screenshots (optional) -----------------------------------
+    if args.screenshots and save_dir:
+        ss_dir = save_dir / "screenshots"
+        ss_dir.mkdir(exist_ok=True)
+        ui.info(f"Capturing HTTP pages to {ss_dir}/")
+        for host in hosts:
+            if any(p.port in (*screenshots.HTTP_PORTS, *screenshots.HTTPS_PORTS)
+                   for p in host.open_ports):
+                screenshots.capture(
+                    host, ss_dir,
+                    timeout=max(5.0, profile.timeout * 5),
+                    png=args.screenshots_png,
+                )
 
     elapsed = time.time() - t0
     ui.info(f"Scan finished in {elapsed:.2f}s.")
 
+    # ---- Phase 5: Output ---------------------------------------------------
     _render(hosts, args)
+
+    if save_dir:
+        # Default to writing both HTML and JSON when --save is given without --report.
+        formats = args.report
+        if not formats and args.save:
+            formats = ["html", "json"]
+        _write_reports(hosts, save_dir, formats, str(args.target))
+
+    if args.show_default_creds:
+        _print_default_creds(hosts)
+
     return 0
 
 
