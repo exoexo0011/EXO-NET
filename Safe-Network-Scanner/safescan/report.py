@@ -1,4 +1,4 @@
-"""HTML and CSV report writers.
+"""HTML and CSV report writers (EXO NET themed).
 
 JSON exports go through :func:`safescan.output.render_json`. This module
 focuses on file-based, human-friendly tabular formats.
@@ -56,26 +56,108 @@ def write_json(hosts: List[HostResult], dest: Path) -> None:
     dest.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
 
 
-# ---- HTML -------------------------------------------------------------------
+# ---- HTML (EXO NET theme) ---------------------------------------------------
+_HTML_FONT_LINK = (
+    "<link rel='preconnect' href='https://fonts.googleapis.com'>"
+    "<link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>"
+    "<link href='https://fonts.googleapis.com/css2?family=Share+Tech+Mono"
+    "&display=swap' rel='stylesheet'>"
+)
+
 _HTML_CSS = """
 :root { color-scheme: dark; }
-body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-       background: #0e0f12; color: #e6e8eb; padding: 18px; line-height: 1.4; }
-h1   { color: #6ddcff; margin: 0 0 8px 0; }
-h2   { color: #a8e890; margin-top: 28px; border-bottom: 1px solid #303339;
-       padding-bottom: 4px; }
-.meta { color: #9aa0a6; font-size: 0.92em; margin: 4px 0 10px; }
-table { border-collapse: collapse; margin-top: 6px; min-width: 60%; }
-th, td { padding: 5px 12px; border: 1px solid #303339; text-align: left;
-         vertical-align: top; }
-th { background: #1a1c20; color: #6ddcff; font-weight: 600; }
-.open    { color: #a8e890; font-weight: 600; }
-.openf   { color: #f0c674; }
-.closed  { color: #cc6666; }
-.muted   { color: #888; }
-.warn-box { background: #2a1d12; color: #f0c674; padding: 10px 14px;
-            border-left: 3px solid #f0c674; margin: 10px 0 18px; }
-.details { color: #9aa0a6; font-size: 0.9em; }
+* { box-sizing: border-box; }
+body {
+  font-family: 'Share Tech Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: #000;
+  color: #00ff41;
+  text-shadow: 0 0 8px #00ff41;
+  padding: 24px;
+  line-height: 1.5;
+  margin: 0;
+}
+h1 {
+  color: #00cfff;
+  text-shadow: 0 0 8px #00cfff;
+  margin: 0 0 6px 0;
+  letter-spacing: 2px;
+  font-weight: normal;
+}
+h2 {
+  color: #00cfff;
+  text-shadow: 0 0 8px #00cfff;
+  margin-top: 32px;
+  border-bottom: 1px solid #ff003c44;
+  padding-bottom: 6px;
+  letter-spacing: 1px;
+  font-weight: normal;
+}
+.tag {
+  color: #00ff41;
+  text-shadow: 0 0 8px #00ff41;
+  letter-spacing: 1px;
+}
+.meta {
+  color: #00cfff;
+  text-shadow: none;
+  font-size: 0.92em;
+  margin: 4px 0 10px;
+}
+.meta b { color: #00ff41; text-shadow: 0 0 8px #00ff41; }
+.stats {
+  margin: 8px 0 12px;
+  font-size: 0.95em;
+  letter-spacing: 1px;
+}
+.stats .pill {
+  display: inline-block;
+  padding: 2px 10px;
+  margin-right: 8px;
+  border: 1px solid #1a1a1a;
+  background: #0d0d0d;
+}
+.stats .pill.open    { color: #00ff41; text-shadow: 0 0 8px #00ff41; font-weight: bold; }
+.stats .pill.openf   { color: #ffe600; text-shadow: 0 0 8px #ffe600; }
+.stats .pill.closed  { color: #ff003c; text-shadow: 0 0 8px #ff003c; }
+table {
+  border-collapse: collapse;
+  margin-top: 6px;
+  min-width: 60%;
+  background: #000;
+}
+th, td {
+  padding: 6px 12px;
+  border: 1px solid #1a1a1a;
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  background: #0d0d0d;
+  color: #00cfff;
+  text-shadow: 0 0 8px #00cfff;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+td { color: #00ff41; }
+.open    { color: #00ff41; text-shadow: 0 0 8px #00ff41; font-weight: bold; }
+.openf   { color: #ffe600; text-shadow: 0 0 8px #ffe600; }
+.closed  { color: #ff003c; text-shadow: 0 0 8px #ff003c; }
+.muted   { color: #4d6650; text-shadow: none; }
+.warn-box {
+  background: #0d0000;
+  color: #ff003c;
+  text-shadow: 0 0 8px #ff003c;
+  padding: 12px 16px;
+  border-left: 3px solid #ff003c;
+  margin: 14px 0 22px;
+  letter-spacing: 1px;
+}
+.details {
+  color: #00cfff;
+  text-shadow: none;
+  font-size: 0.9em;
+}
+a { color: #00cfff; }
 """
 
 
@@ -84,6 +166,18 @@ def _state_class(state: str) -> str:
         return "open"
     if state.startswith("open"):
         return "openf"
+    return "closed"
+
+
+def _state_bucket(state: str) -> str:
+    """Bucket a port state into one of: open, filtered, closed."""
+    if state == "open":
+        return "open"
+    if state.startswith("open"):
+        # 'open|filtered' -> filtered bucket (UDP best-effort)
+        return "filtered"
+    if "filtered" in state:
+        return "filtered"
     return "closed"
 
 
@@ -96,21 +190,39 @@ def _details_html(details: dict) -> str:
     )
 
 
+def _stats_row_html(host: HostResult) -> str:
+    """Render an open / filtered / closed counts pill row for a host."""
+    counts = {"open": 0, "filtered": 0, "closed": 0}
+    for p in host.ports:
+        counts[_state_bucket(p.state)] += 1
+    return (
+        "<div class='stats'>"
+        f"<span class='pill open'>open: {counts['open']}</span>"
+        f"<span class='pill openf'>filtered: {counts['filtered']}</span>"
+        f"<span class='pill closed'>closed: {counts['closed']}</span>"
+        "</div>"
+    )
+
+
 def write_html(hosts: List[HostResult], dest: Path, generated_at: str,
                target: str = "") -> None:
     parts: list[str] = []
     parts.append("<!doctype html><html lang='en'><head><meta charset='utf-8'>")
-    parts.append("<title>Safe-Network-Scanner Report</title>")
+    parts.append("<title>EXO NET &mdash; Reconnaissance Report</title>")
+    parts.append(_HTML_FONT_LINK)
     parts.append(f"<style>{_HTML_CSS}</style></head><body>")
 
-    parts.append("<h1>Safe-Network-Scanner Report</h1>")
+    parts.append("<h1>EXO NET &mdash; Reconnaissance Report</h1>")
     parts.append(
-        f"<p class='meta'>Generated {html_lib.escape(generated_at)} - "
-        f"target {html_lib.escape(target)} - "
+        "<div class='tag'>[ Advanced Network Reconnaissance ]</div>"
+    )
+    parts.append(
+        f"<p class='meta'>Generated {html_lib.escape(generated_at)} &middot; "
+        f"target {html_lib.escape(target)} &middot; "
         f"{len(hosts)} host(s) reported.</p>"
     )
     parts.append(
-        "<div class='warn-box'>Educational use only. Use only on networks "
+        "<div class='warn-box'>// Educational use only. Only scan networks "
         "you own or have explicit written permission to scan.</div>"
     )
 
@@ -121,7 +233,7 @@ def write_html(hosts: List[HostResult], dest: Path, generated_at: str,
         return
 
     for h in hosts:
-        parts.append(f"<h2>{html_lib.escape(h.ip)}</h2>")
+        parts.append(f"<h2>&gt; {html_lib.escape(h.ip)}</h2>")
 
         meta_bits = []
         if h.hostname:        meta_bits.append(f"hostname=<b>{html_lib.escape(h.hostname)}</b>")
@@ -132,6 +244,9 @@ def write_html(hosts: List[HostResult], dest: Path, generated_at: str,
         if h.discovered_via:  meta_bits.append("via=" + html_lib.escape(",".join(h.discovered_via)))
         if meta_bits:
             parts.append("<p class='meta'>" + " &middot; ".join(meta_bits) + "</p>")
+
+        # Per-host stats row (open / filtered / closed)
+        parts.append(_stats_row_html(h))
 
         if not h.ports:
             parts.append("<p class='muted'>No ports scanned.</p>")

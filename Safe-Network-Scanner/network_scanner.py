@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Safe-Network-Scanner CLI entry point.
+"""EXO NET CLI entry point.
 
+EXO NET is an advanced (educational) network reconnaissance toolkit.
 The actual scanner lives in the :mod:`safescan` package next to this file.
 Keeping a top-level shim means ``python network_scanner.py ...`` still works
 without requiring the package to be installed.

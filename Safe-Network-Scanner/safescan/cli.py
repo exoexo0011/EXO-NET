@@ -90,8 +90,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="network_scanner.py",
         description=(
-            "Safe-Network-Scanner: an educational nmap-lite scanner. "
-            "Use only on networks you own or have written permission to scan."
+            "EXO NET [ Advanced Network Reconnaissance ] - an educational "
+            "nmap-lite scanner. Use only on networks you own or have "
+            "explicit written permission to scan."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -109,7 +110,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument("--version", action="version",
-                        version=f"safescan {__version__}")
+                        version=f"EXO NET {__version__}")
 
     # ---- target & ports ----
     parser.add_argument("--target", required=True, type=_parse_target,
