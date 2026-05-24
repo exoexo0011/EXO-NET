@@ -1,6 +1,9 @@
 # Core
 colorama>=0.4.6
 
+# Interactive TUI menu (shown when exonet.py is run with no arguments)
+rich>=13.0.0
+
 # Optional capability libraries — every feature degrades gracefully if a
 # library here is missing. Install everything for the full EXO NET Pro
 # experience.

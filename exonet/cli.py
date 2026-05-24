@@ -666,6 +666,24 @@ def _render(hosts: List[HostResult], args: argparse.Namespace) -> None:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+
+    # No CLI flags at all -> launch the interactive Rich TUI menu.
+    # Any explicit flag (--target, --help, --version, ...) keeps the
+    # original non-interactive behavior.
+    if not argv:
+        try:
+            from . import menu
+        except SystemExit as exc:
+            return int(exc.code) if isinstance(exc.code, int) else 1
+        try:
+            return menu.run_interactive()
+        except KeyboardInterrupt:
+            print()
+            ui.warn("Interrupted by user.")
+            return 130
+
     parser = _build_parser()
     args = parser.parse_args(argv)
     try:
