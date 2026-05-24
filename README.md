@@ -115,6 +115,7 @@ runs with only the standard library.
 
 | Optional dep      | Enables                                                |
 |-------------------|--------------------------------------------------------|
+| `rich`            | Interactive TUI menu (no-arg launch)                   |
 | `scapy`           | ARP sweep, SYN scan, raw ICMP                          |
 | `python-whois`    | WHOIS lookup (else falls back to system `whois`)       |
 | `dnspython`       | DNS A/AAAA/MX/TXT/NS/CNAME/SOA enumeration             |
@@ -123,7 +124,88 @@ runs with only the standard library.
 | `weasyprint`      | PDF export of the pro report                           |
 | `playwright`      | PNG screenshots (`--screenshots-png`)                  |
 
-## Run
+## Quickstart — two ways to use EXO NET Pro
+
+EXO NET Pro can be driven in two ways. Pick whichever fits how you
+work — **no command memorization is required**.
+
+| Mode             | When to use it                              | Command                                                                     |
+|------------------|---------------------------------------------|-----------------------------------------------------------------------------|
+| **Interactive**  | Recommended for beginners, one-off scans    | `python exonet.py`                                                          |
+| **CLI**          | Advanced users, scripting, CI, repeat runs  | `python exonet.py --target 192.168.1.0/24 --pro --report html --save`       |
+
+Both modes use the same scan engine and produce the same reports.
+The interactive menu just walks you through the choices step-by-step
+instead of asking you to remember flag names.
+
+## Interactive Mode
+
+Run `exonet.py` with **no arguments** to launch the Rich-powered
+interactive menu — a guided TUI that walks you through every choice,
+shows a live dashboard while the scan runs, and offers to open the
+HTML report in your browser when it finishes.
+
+```bash
+python exonet.py
+```
+
+```
+╔═══════════════════════════════════════════════════════════╗
+║                      EXO NET Pro v2.0.0                   ║
+║              [ Professional Network Scanner ]             ║
+╠═══════════════════════════════════════════════════════════╣
+║   [1]  Quick Scan      — common ports only                ║
+║   [2]  Full Scan       — discover + all ports             ║
+║   [3]  Pro Scan        — full + vuln + report             ║
+║   [4]  Stealth Scan    — slow + evasion                   ║
+║   [5]  Aggressive Scan — T4 + UDP + banners               ║
+║   [6]  Custom Scan     — choose your options              ║
+║   [Q]  Quit                                               ║
+╚═══════════════════════════════════════════════════════════╝
+```
+
+### Flow
+
+1. **Pick a scan profile.** Choose one of the five presets, or
+   `[6] Custom Scan` to build your own.
+2. **Enter a target.** IP (`192.168.1.1`) or CIDR (`192.168.1.0/24`).
+3. **Confirm.** A summary panel shows exactly what will run — target,
+   scan type, modules, report format, timing — before anything
+   touches the network.
+4. **Watch the live dashboard.** Per-phase progress bars (discovery,
+   port scan, banners), a live host table that fills in as hosts are
+   found, and a color-coded log panel — green for hits, cyan for info,
+   yellow for warnings, red for risks.
+5. **Review the results screen.** Hosts found, open ports, risk
+   distribution, and the path to the saved report. Pick `[3] Open
+   report` to launch the HTML in your browser, `[1]` to scan the same
+   target again, `[2]` for a new target, or `[Q]` to quit.
+
+### Custom Scan (option 6)
+
+The Custom Scan flow asks you, in order:
+
+1. **Scan type** — `[1] TCP Connect` / `[2] TCP SYN` / `[3] UDP`
+2. **Timing** — `[0..5]`, with a description of each template
+3. **Port range** — `[1] Common` / `[2] 1-1024` / `[3] All ports` / `[4] Custom`
+4. **Banners** — yes / no
+5. **OS detect** — yes / no
+6. **Vuln scan** — yes / no
+7. **Save report** — `[1] HTML` / `[2] JSON` / `[3] CSV` / `[4] All` / `[5] None`
+8. **Evasion** — yes / no
+
+Then it shows the same confirm screen and runs.
+
+### When to skip the menu
+
+If you pass **any** flag — `--target`, `--help`, `--version`,
+anything — EXO NET Pro skips the menu and runs in CLI mode exactly
+as before. The menu only appears when you launch with no arguments.
+
+## Run (CLI mode)
+
+> Prefer a guided experience? See [Interactive Mode](#interactive-mode)
+> above. Everything below documents the underlying CLI flags.
 
 ### Basic
 
